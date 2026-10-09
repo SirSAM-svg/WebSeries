@@ -117,7 +117,7 @@ async function handleApiRequest(request, url, env) {
         upstream_server: serverHeader,
         cf_mitigated: cfMitigated,
         cf_ray: cfRay,
-        body_snippet: respBody.substring(0, 400)
+        body_snippet: respBody
       }), {
         status: 502,
         headers: corsHeaders
