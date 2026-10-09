@@ -70,6 +70,26 @@ async function handleApiRequest(request, url, env) {
     reqHeaders.set('X-Requested-With', 'XMLHttpRequest');
 
     try {
+      // Step 1: Pre-fetch watch page to establish genuine session & cookies
+      let cookie = '';
+      try {
+        const watchResp = await fetch(watchUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://rongyok.com/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+          }
+        });
+        const rawCookies = watchResp.headers.get('set-cookie');
+        if (rawCookies) {
+          cookie = rawCookies.split(';')[0];
+        }
+      } catch (e) {}
+
+      if (cookie) {
+        reqHeaders.set('Cookie', cookie);
+      }
+
       let resp = await fetch(playUrl, {
         method: 'GET',
         headers: reqHeaders,
@@ -77,7 +97,7 @@ async function handleApiRequest(request, url, env) {
         referrerPolicy: 'unsafe-url'
       });
 
-      // If 403, try fallback with root referer https://rongyok.com/
+      // If 403, try fallback with root referer
       if (resp.status === 403) {
         reqHeaders.set('Referer', 'https://rongyok.com/');
         resp = await fetch(playUrl, {
