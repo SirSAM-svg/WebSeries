@@ -318,7 +318,14 @@ class VerticalPlayer {
     try {
       const provider = drama.provider || 'rongyok';
       const res = await fetch(`/api/play/${drama.id}/${this.currentEp}?provider=${provider}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        let msg = `API HTTP ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData && errData.error) msg += ` (${errData.error})`;
+        } catch (e) {}
+        throw new Error(msg);
+      }
       const data = await res.json();
       
       if (data.status && data.stream && data.stream.streamUrl) {
@@ -326,25 +333,13 @@ class VerticalPlayer {
         const format = data.stream.format || (streamUrl.includes('.m3u8') ? 'HLS' : 'MP4');
         this.playStream(streamUrl, format);
       } else {
-        throw new Error('No stream data');
+        throw new Error(data.error || 'No stream data');
       }
     } catch (err) {
-      console.warn('Primary edge play fetch error, trying secondary source:', err);
-      try {
-        const sid = drama.series_id || (drama.id && drama.id.replace('ry-', ''));
-        const pRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://rongyok.com/watch/playseries.php?series_id=${sid}&ep=${this.currentEp}`)}`);
-        const pData = await pRes.json();
-        if (pData && pData.ok && pData.video_url) {
-          this.playStream(pData.video_url, 'MP4');
-          return;
-        }
-      } catch (proxyErr) {
-        console.warn('Secondary fallback failed:', proxyErr);
-      }
-
+      console.error('[PLAYER LOAD ERROR]', err);
       this.loader.classList.add('hidden');
       if (window.app) {
-        window.app.showToast('ไม่สามารถเชื่อมต่อสัญญาณวิดีโอได้ชั่วคราว');
+        window.app.showToast(`เล่นไม่ได้: ${err.message}`);
       }
     }
 

@@ -86,12 +86,18 @@ async function handleApiRequest(request, url, env) {
           });
         }
       }
-      return new Response(JSON.stringify({ status: false, error: 'Stream not found' }), {
-        status: 404,
+      return new Response(JSON.stringify({
+        status: false,
+        error: `RongYok upstream returned HTTP ${resp.status}`
+      }), {
+        status: 502,
         headers: corsHeaders
       });
     } catch (err) {
-      return new Response(JSON.stringify({ status: false, error: err.message }), {
+      return new Response(JSON.stringify({
+        status: false,
+        error: `Worker proxy error: ${err.message}`
+      }), {
         status: 500,
         headers: corsHeaders
       });
