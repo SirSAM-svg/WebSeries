@@ -47,6 +47,7 @@ async function handleApiRequest(request, url, env) {
       status: true,
       ok: true,
       service: 'RongYok Edge API',
+      version: '2.1-diag',
       timestamp: Date.now()
     }), { headers: corsHeaders });
   }
@@ -105,9 +106,18 @@ async function handleApiRequest(request, url, env) {
           });
         }
       }
+      const respBody = await resp.text();
+      const serverHeader = resp.headers.get('server') || '';
+      const cfMitigated = resp.headers.get('cf-mitigated') || '';
+      const cfRay = resp.headers.get('cf-ray') || '';
       return new Response(JSON.stringify({
         status: false,
-        error: `RongYok upstream returned HTTP ${resp.status}`
+        error: `RongYok upstream returned HTTP ${resp.status}`,
+        upstream_status: resp.status,
+        upstream_server: serverHeader,
+        cf_mitigated: cfMitigated,
+        cf_ray: cfRay,
+        body_snippet: respBody.substring(0, 400)
       }), {
         status: 502,
         headers: corsHeaders
