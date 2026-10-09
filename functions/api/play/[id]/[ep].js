@@ -7,16 +7,34 @@ export async function onRequestGet(context) {
   const { id, ep } = context.params;
   const seriesId = id.startsWith('ry-') ? id.substring(3) : id;
 
+  const watchUrl = `https://rongyok.com/watch/?series_id=${seriesId}`;
   const playUrl = `https://rongyok.com/watch/playseries.php?series_id=${seriesId}&ep=${ep}`;
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124',
-    'Referer': `https://rongyok.com/watch/?series_id=${seriesId}`,
-    'Accept': 'application/json, text/plain, */*',
-    'X-Requested-With': 'XMLHttpRequest',
-  };
+
+  const reqHeaders = new Headers();
+  reqHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124');
+  reqHeaders.set('Referer', watchUrl);
+  reqHeaders.set('Origin', 'https://rongyok.com');
+  reqHeaders.set('Accept', 'application/json, text/plain, */*');
+  reqHeaders.set('X-Requested-With', 'XMLHttpRequest');
 
   try {
-    const resp = await fetch(playUrl, { headers });
+    let resp = await fetch(playUrl, {
+      method: 'GET',
+      headers: reqHeaders,
+      referrer: watchUrl,
+      referrerPolicy: 'unsafe-url'
+    });
+
+    if (resp.status === 403) {
+      reqHeaders.set('Referer', 'https://rongyok.com/');
+      resp = await fetch(playUrl, {
+        method: 'GET',
+        headers: reqHeaders,
+        referrer: 'https://rongyok.com/',
+        referrerPolicy: 'unsafe-url'
+      });
+    }
+
     if (!resp.ok) {
       return new Response(JSON.stringify({ status: false, error: `RongYok returned ${resp.status}` }), {
         status: 502,

@@ -58,16 +58,35 @@ async function handleApiRequest(request, url, env) {
     const ep = playMatch[2];
     const seriesId = dramaId.startsWith('ry-') ? dramaId.substring(3) : dramaId;
 
+    const watchUrl = `https://rongyok.com/watch/?series_id=${seriesId}`;
     const playUrl = `https://rongyok.com/watch/playseries.php?series_id=${seriesId}&ep=${ep}`;
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer': `https://rongyok.com/watch/?series_id=${seriesId}`,
-      'Accept': 'application/json, text/plain, */*',
-      'X-Requested-With': 'XMLHttpRequest',
-    };
+    
+    const reqHeaders = new Headers();
+    reqHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+    reqHeaders.set('Referer', watchUrl);
+    reqHeaders.set('Origin', 'https://rongyok.com');
+    reqHeaders.set('Accept', 'application/json, text/plain, */*');
+    reqHeaders.set('X-Requested-With', 'XMLHttpRequest');
 
     try {
-      const resp = await fetch(playUrl, { headers });
+      let resp = await fetch(playUrl, {
+        method: 'GET',
+        headers: reqHeaders,
+        referrer: watchUrl,
+        referrerPolicy: 'unsafe-url'
+      });
+
+      // If 403, try fallback with root referer https://rongyok.com/
+      if (resp.status === 403) {
+        reqHeaders.set('Referer', 'https://rongyok.com/');
+        resp = await fetch(playUrl, {
+          method: 'GET',
+          headers: reqHeaders,
+          referrer: 'https://rongyok.com/',
+          referrerPolicy: 'unsafe-url'
+        });
+      }
+
       if (resp.ok) {
         const data = await resp.json();
         if (data && data.ok && data.video_url) {
