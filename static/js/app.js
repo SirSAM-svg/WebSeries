@@ -224,6 +224,7 @@ class ShortFlixApp {
   }
 
   showFeedView() {
+    document.body.classList.remove('in-player-mode');
     this.viewPlayer.classList.remove('active');
     this.viewFeed.classList.add('active');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -231,6 +232,7 @@ class ShortFlixApp {
   }
 
   showPlayerView() {
+    document.body.classList.add('in-player-mode');
     this.viewFeed.classList.remove('active');
     this.viewPlayer.classList.add('active');
     window.scrollTo({ top: 0, behavior: 'smooth' });
