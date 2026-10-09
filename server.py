@@ -364,6 +364,7 @@ routes = [
     Route("/api/play/{id}/{ep}", endpoint=api_play, methods=["GET"]),
     Route("/api/proxy-image", endpoint=api_image_proxy, methods=["GET"]),
     Mount("/static", app=StaticFiles(directory=STATIC_DIR), name="static"),
+    Mount("/data", app=StaticFiles(directory=DATA_DIR), name="data"),
 ]
 
 app = Starlette(debug=True, routes=routes)

@@ -18,7 +18,9 @@ export async function onRequestGet(context) {
 
   try {
     const dataUrl = new URL('/data/seed_data.json', context.request.url);
-    const resp = await fetch(dataUrl);
+    const resp = context.env.ASSETS
+      ? await context.env.ASSETS.fetch(new Request(dataUrl))
+      : await fetch(dataUrl);
     if (resp.ok) {
       const seed = await resp.json();
       const dramas = seed.dramas || [];

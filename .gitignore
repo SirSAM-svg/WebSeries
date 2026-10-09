@@ -3,3 +3,7 @@ __pycache__/
 data/cache.db
 .DS_Store
 Thumbs.db
+push.py
+push_to_github.bat
+.wrangler/
+

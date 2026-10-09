@@ -13,7 +13,9 @@ export async function onRequestGet(context) {
   try {
     // Fetch seed_data.json from the current deployment
     const dataUrl = new URL('/data/seed_data.json', context.request.url);
-    const resp = await fetch(dataUrl);
+    const resp = context.env.ASSETS
+      ? await context.env.ASSETS.fetch(new Request(dataUrl))
+      : await fetch(dataUrl);
     
     if (!resp.ok) {
       throw new Error(`Failed to load seed_data.json: ${resp.status}`);

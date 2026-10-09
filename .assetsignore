@@ -1,8 +1,15 @@
 .git
 .git/**
+.github
 .github/**
+.wrangler
+.wrangler/**
+scripts
 scripts/**
+__pycache__
 __pycache__/**
+node_modules
+node_modules/**
 *.py
 *.bat
 *.db

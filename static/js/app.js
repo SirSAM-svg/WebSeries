@@ -1,6 +1,7 @@
 /**
  * RONGYOK SERIES - MAIN APPLICATION CONTROLLER
- * Manages 800+ Catalog, Pagination, Filters, Search Debounce, View Routing, and Continue Watching.
+ * Manages 800+ Catalog, Pagination, Filters, Instant Search, View Routing, and Continue Watching.
+ * Hybrid Architecture: Direct Static CDN Catalog + Cloudflare Edge API Fallback.
  */
 
 class ShortFlixApp {
@@ -10,6 +11,7 @@ class ShortFlixApp {
     this.currentPage = 1;
     this.pageSize = 48;
     this.hasMore = false;
+    this.masterCatalog = [];
     this.allDramas = [];
     this.activeDrama = null;
     this.searchTimer = null;
@@ -82,7 +84,7 @@ class ShortFlixApp {
     this.detectAndApplyMobileMode();
     window.addEventListener('resize', () => this.detectAndApplyMobileMode());
     this.bindEvents();
-    await this.loadFeed(1, false);
+    await this.loadCatalogAndRender();
     this.renderContinueWatching();
   }
 
@@ -127,7 +129,7 @@ class ShortFlixApp {
         this.currentLang = btn.dataset.lang;
         this.currentPage = 1;
         this.isSearchMode = false;
-        this.loadFeed(1, false);
+        this.applyFiltersAndRender(1, false);
       });
     });
 
@@ -139,7 +141,7 @@ class ShortFlixApp {
         this.currentGenre = btn.dataset.genre;
         this.currentPage = 1;
         this.isSearchMode = false;
-        this.loadFeed(1, false);
+        this.applyFiltersAndRender(1, false);
       });
     });
 
@@ -147,12 +149,12 @@ class ShortFlixApp {
     if (this.btnLoadMore) {
       this.btnLoadMore.addEventListener('click', () => {
         if (this.hasMore) {
-          this.loadFeed(this.currentPage + 1, true);
+          this.applyFiltersAndRender(this.currentPage + 1, true);
         }
       });
     }
 
-    // Search input with 500ms debounce
+    // Search input with instant responsive debounce
     this.inputSearch.addEventListener('input', (e) => {
       const q = e.target.value.trim();
       this.btnClearSearch.classList.toggle('hidden', !q);
@@ -160,14 +162,14 @@ class ShortFlixApp {
       clearTimeout(this.searchTimer);
       this.searchTimer = setTimeout(() => {
         this.performSearch(q);
-      }, 500);
+      }, 250);
     });
 
     this.btnClearSearch.addEventListener('click', () => {
       this.inputSearch.value = '';
       this.btnClearSearch.classList.add('hidden');
       this.isSearchMode = false;
-      this.loadFeed(1, false);
+      this.applyFiltersAndRender(1, false);
     });
 
     // Reset filter button
@@ -179,7 +181,7 @@ class ShortFlixApp {
       this.isSearchMode = false;
       document.querySelectorAll('#lang-pills .pill').forEach(b => b.classList.toggle('active', b.dataset.lang === 'all'));
       document.querySelectorAll('#genre-pills .pill-genre').forEach(b => b.classList.toggle('active', b.dataset.genre === 'ทั้งหมด'));
-      this.loadFeed(1, false);
+      this.applyFiltersAndRender(1, false);
     });
 
     // Clear continue watching history
@@ -234,12 +236,40 @@ class ShortFlixApp {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  /**
+   * Loads catalog with dual redundancy:
+   * 1. Direct fetch from static /data/seed_data.json (blazing fast, 100% reliable on Cloudflare)
+   * 2. Edge API fallback /api/feed
+   */
+  async loadCatalogAndRender() {
+    // Strategy 1: Direct static asset fetch
+    try {
+      const res = await fetch('/data/seed_data.json');
+      if (res.ok) {
+        const seed = await res.json();
+        if (seed && seed.dramas && seed.dramas.length > 0) {
+          this.masterCatalog = seed.dramas;
+          this.featuredDrama = seed.featured || seed.dramas[0];
+          this.renderHero(this.featuredDrama);
+          this.applyFiltersAndRender(1, false);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Direct static seed fetch failed, falling back to edge API:', e);
+    }
+
+    // Strategy 2: Edge API /api/feed
+    await this.loadFeed(1, false);
+  }
+
   async loadFeed(page = 1, append = false) {
     try {
       this.currentPage = page;
       const res = await fetch(`/api/feed?lang=${this.currentLang}&genre=${encodeURIComponent(this.currentGenre)}&page=${page}&limit=${this.pageSize}`);
-      const data = await res.json();
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       
+      const data = await res.json();
       if (data.status) {
         if (!append) {
           this.allDramas = data.dramas || [];
@@ -259,8 +289,62 @@ class ShortFlixApp {
         this.gridCounter.textContent = `${this.allDramas.length} / ${data.total} เรื่อง`;
       }
     } catch (e) {
-      console.error('Failed to load feed:', e);
+      console.error('Failed to load feed via API:', e);
+      if (this.cardsGrid.children.length === 0) {
+        this.noResults.classList.remove('hidden');
+      }
     }
+  }
+
+  applyFiltersAndRender(page = 1, append = false) {
+    if (!this.masterCatalog || this.masterCatalog.length === 0) {
+      this.loadFeed(page, append);
+      return;
+    }
+
+    this.currentPage = page;
+    let filtered = this.masterCatalog;
+
+    // Filter audio / language
+    if (this.currentLang === 'dubbed') {
+      filtered = filtered.filter(d => 
+        (d.language && d.language.includes('พากย์ไทย')) || 
+        (d.genre && d.genre.includes('พากย์ไทย'))
+      );
+    } else if (this.currentLang === 'subbed') {
+      filtered = filtered.filter(d => 
+        (d.language && d.language.includes('ซับไทย')) || 
+        (d.genre && d.genre.includes('ซับไทย'))
+      );
+    }
+
+    // Filter genre
+    if (this.currentGenre && this.currentGenre !== 'ทั้งหมด') {
+      const gLower = this.currentGenre.toLowerCase();
+      filtered = filtered.filter(d => 
+        d.genre && d.genre.some(g => g.toLowerCase().includes(gLower))
+      );
+    }
+
+    const totalCount = filtered.length;
+    const endIdx = page * this.pageSize;
+    const paginatedDramas = filtered.slice(0, endIdx);
+
+    this.allDramas = paginatedDramas;
+    this.hasMore = endIdx < totalCount;
+
+    if (this.lblTotalCount) {
+      this.lblTotalCount.textContent = totalCount;
+    }
+
+    if (!append && paginatedDramas.length > 0 && !this.featuredDrama) {
+      this.featuredDrama = paginatedDramas[0];
+      this.renderHero(this.featuredDrama);
+    }
+
+    this.renderDramaGrid(paginatedDramas, false);
+    this.wrapLoadMore.classList.toggle('hidden', !this.hasMore);
+    this.gridCounter.textContent = `${paginatedDramas.length} / ${totalCount} เรื่อง`;
   }
 
   renderHero(drama) {
@@ -295,10 +379,11 @@ class ShortFlixApp {
       const isSub = (drama.language && drama.language.includes('ซับ')) || (drama.genre && drama.genre.includes('ซับไทย'));
       const badgeColor = isSub ? 'background: rgba(16, 185, 129, 0.9);' : 'background: rgba(37, 99, 235, 0.9);';
       const badgeText = isSub ? 'ซับไทย' : 'พากย์ไทย';
+      const sid = drama.series_id || (drama.id ? drama.id.replace('ry-', '') : '100309804');
 
       card.innerHTML = `
         <div class="card-poster-wrap">
-          <img class="card-poster" src="${drama.cover}" alt="${drama.title}" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='/static/posters/ry-100309804.jpg';">
+          <img class="card-poster" src="${drama.cover}" alt="${drama.title}" loading="lazy" referrerpolicy="no-referrer" data-sid="${sid}" onerror="this.onerror=null; this.src='https://rongyok.com/images/poster/${sid}.webp';">
           <span class="card-badge-top" style="${badgeColor}">${badgeText}</span>
           <span class="card-badge-right">★ ${drama.rating || '9.5'}</span>
           <span class="card-ep-counter">${drama.episodes || 60} ตอน</span>
@@ -318,26 +403,40 @@ class ShortFlixApp {
     });
   }
 
-  async performSearch(keyword) {
+  performSearch(keyword) {
     if (!keyword) {
       this.isSearchMode = false;
-      this.loadFeed(1, false);
+      this.applyFiltersAndRender(1, false);
       return;
     }
 
     this.isSearchMode = true;
-    try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(keyword)}`);
-      const data = await res.json();
-      
-      if (data.status && data.results) {
-        this.renderDramaGrid(data.results, false);
-        this.gridCounter.textContent = `${data.results.length} เรื่อง`;
-        this.wrapLoadMore.classList.add('hidden');
-      }
-    } catch (e) {
-      console.warn('Search request error:', e);
+    const qLower = keyword.toLowerCase();
+
+    // Instant Client-side Search over the 827 series
+    if (this.masterCatalog && this.masterCatalog.length > 0) {
+      const results = this.masterCatalog.filter(d => 
+        (d.title && d.title.toLowerCase().includes(qLower)) ||
+        (d.synopsis && d.synopsis.toLowerCase().includes(qLower)) ||
+        (d.genre && d.genre.some(g => g.toLowerCase().includes(gLower)))
+      );
+      this.renderDramaGrid(results, false);
+      this.gridCounter.textContent = `${results.length} เรื่อง`;
+      this.wrapLoadMore.classList.add('hidden');
+      return;
     }
+
+    // Fallback Edge Search API
+    fetch(`/api/search?q=${encodeURIComponent(keyword)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.status && data.results) {
+          this.renderDramaGrid(data.results, false);
+          this.gridCounter.textContent = `${data.results.length} เรื่อง`;
+          this.wrapLoadMore.classList.add('hidden');
+        }
+      })
+      .catch(e => console.warn('Search request error:', e));
   }
 
   async openDrama(drama, epNum = 1) {
@@ -362,48 +461,53 @@ class ShortFlixApp {
     if (this.drawerGrid) {
       this.drawerGrid.innerHTML = '<div style="color: #9ca3af; padding: 10px; grid-column: span 5; text-align: center;">กำลังโหลดรายชื่อตอน...</div>';
     }
+
+    let total = drama.episodes || 60;
     
     try {
       const res = await fetch(`/api/episodes/${drama.id}`);
-      const data = await res.json();
-      const episodes = (data.status && data.episodes) ? data.episodes : [];
-      const total = episodes.length || drama.episodes || 60;
-
-      this.sideTotal.textContent = `${total} ตอน`;
-      this.epCountLbl.textContent = total;
-      if (this.drawerEpCount) this.drawerEpCount.textContent = total;
-
-      this.episodesGrid.innerHTML = '';
-      if (this.drawerGrid) this.drawerGrid.innerHTML = '';
-
-      const watchedList = JSON.parse(localStorage.getItem(`shortflix_watched_${drama.id}`) || '[]');
-
-      for (let ep = 1; ep <= total; ep++) {
-        // Desktop sidebar button
-        const btn = document.createElement('button');
-        btn.className = `ep-btn ${ep === activeEp ? 'active' : ''} ${watchedList.includes(ep) ? 'watched' : ''}`;
-        btn.dataset.ep = ep;
-        btn.textContent = `Ep.${ep}`;
-        btn.addEventListener('click', () => {
-          this.player.loadEpisode(drama, ep);
-        });
-        this.episodesGrid.appendChild(btn);
-
-        // Mobile drawer button
-        if (this.drawerGrid) {
-          const mBtn = document.createElement('button');
-          mBtn.className = `ep-btn ${ep === activeEp ? 'active' : ''} ${watchedList.includes(ep) ? 'watched' : ''}`;
-          mBtn.dataset.ep = ep;
-          mBtn.textContent = `Ep.${ep}`;
-          mBtn.addEventListener('click', () => {
-            this.player.loadEpisode(drama, ep);
-            this.closeEpisodeDrawer();
-          });
-          this.drawerGrid.appendChild(mBtn);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status && data.episodes && data.episodes.length > 0) {
+          total = data.episodes.length;
         }
       }
     } catch (e) {
-      console.warn('Error loading episodes:', e);
+      console.warn('Using fallback episode count:', e);
+    }
+
+    this.sideTotal.textContent = `${total} ตอน`;
+    this.epCountLbl.textContent = total;
+    if (this.drawerEpCount) this.drawerEpCount.textContent = total;
+
+    this.episodesGrid.innerHTML = '';
+    if (this.drawerGrid) this.drawerGrid.innerHTML = '';
+
+    const watchedList = JSON.parse(localStorage.getItem(`shortflix_watched_${drama.id}`) || '[]');
+
+    for (let ep = 1; ep <= total; ep++) {
+      // Desktop sidebar button
+      const btn = document.createElement('button');
+      btn.className = `ep-btn ${ep === activeEp ? 'active' : ''} ${watchedList.includes(ep) ? 'watched' : ''}`;
+      btn.dataset.ep = ep;
+      btn.textContent = `Ep.${ep}`;
+      btn.addEventListener('click', () => {
+        this.player.loadEpisode(drama, ep);
+      });
+      this.episodesGrid.appendChild(btn);
+
+      // Mobile drawer button
+      if (this.drawerGrid) {
+        const mBtn = document.createElement('button');
+        mBtn.className = `ep-btn ${ep === activeEp ? 'active' : ''} ${watchedList.includes(ep) ? 'watched' : ''}`;
+        mBtn.dataset.ep = ep;
+        mBtn.textContent = `Ep.${ep}`;
+        mBtn.addEventListener('click', () => {
+          this.player.loadEpisode(drama, ep);
+          this.closeEpisodeDrawer();
+        });
+        this.drawerGrid.appendChild(mBtn);
+      }
     }
   }
 

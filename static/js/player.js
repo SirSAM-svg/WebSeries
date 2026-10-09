@@ -316,22 +316,36 @@ class VerticalPlayer {
     }
 
     try {
-      // Fetch stream from our local server proxy (Cache-first!)
-      const provider = drama.provider || 'dramabox';
+      const provider = drama.provider || 'rongyok';
       const res = await fetch(`/api/play/${drama.id}/${this.currentEp}?provider=${provider}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       
-      if (data.status && data.stream) {
+      if (data.status && data.stream && data.stream.streamUrl) {
         const streamUrl = data.stream.streamUrl;
-        const format = data.stream.format || 'HLS';
+        const format = data.stream.format || (streamUrl.includes('.m3u8') ? 'HLS' : 'MP4');
         this.playStream(streamUrl, format);
       } else {
         throw new Error('No stream data');
       }
     } catch (err) {
-      console.warn('Playback fetch error, loading fallback:', err);
-      // Fallback open test stream
-      this.playStream('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', 'HLS');
+      console.warn('Primary edge play fetch error, trying secondary source:', err);
+      try {
+        const sid = drama.series_id || (drama.id && drama.id.replace('ry-', ''));
+        const pRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://rongyok.com/watch/playseries.php?series_id=${sid}&ep=${this.currentEp}`)}`);
+        const pData = await pRes.json();
+        if (pData && pData.ok && pData.video_url) {
+          this.playStream(pData.video_url, 'MP4');
+          return;
+        }
+      } catch (proxyErr) {
+        console.warn('Secondary fallback failed:', proxyErr);
+      }
+
+      this.loader.classList.add('hidden');
+      if (window.app) {
+        window.app.showToast('ไม่สามารถเชื่อมต่อสัญญาณวิดีโอได้ชั่วคราว');
+      }
     }
 
     // Mark current episode in history
