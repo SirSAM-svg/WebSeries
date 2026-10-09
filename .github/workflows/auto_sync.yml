@@ -1,0 +1,39 @@
+name: RongYok Auto-Sync
+
+on:
+  schedule:
+    # Run every 6 hours automatically (0:00, 6:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allows manual trigger button in GitHub Actions
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Auto-Update Script
+        run: |
+          python scripts/auto_update.py
+
+      - name: Commit and Push Updates
+        run: |
+          git config --global user.name "RongYok Auto-Sync Bot"
+          git config --global user.email "bot@rongyok.sync"
+          git add data/seed_data.json static/posters/
+          if git diff --staged --quiet; then
+            echo "No new updates found."
+          else
+            git commit -m "Auto-update: sync latest drama releases from RongYok [skip ci]"
+            git push
+          fi

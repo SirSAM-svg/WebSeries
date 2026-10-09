@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0d0f17">
+  <title>RongYok Series - รวมหนังสั้นจีน พากย์ไทย ซับไทย ดูฟรี ไม่จำกัด</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <!-- HLS.js for .m3u8 streaming fallback -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body class="dark-theme">
+
+  <div id="app">
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+      <div class="nav-left">
+        <a href="#" class="brand-logo" id="btn-logo">
+          <div class="logo-icon" style="background: linear-gradient(135deg, #059669, #10b981);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-name">RONGYOK<span class="text-accent" style="color: #34d399;">+</span></span>
+            <span class="brand-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border-color: rgba(16, 185, 129, 0.4);">800+ หนังสั้นจีน</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Search Box with instant debounce -->
+      <div class="nav-search">
+        <div class="search-input-wrap">
+          <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="input-search" placeholder="ค้นหาซีรีส์, ประธาน, แค้น, หมอ... (กด / เพื่อค้นหา)" autocomplete="off">
+          <button id="btn-clear-search" class="btn-icon btn-clear hidden" title="ล้างการค้นหา">✕</button>
+        </div>
+      </div>
+
+      <!-- Right controls: Free Unlimited Badge -->
+      <div class="nav-right">
+        <div class="quota-pill" style="border-color: rgba(16, 185, 129, 0.4); cursor: default;">
+          <span class="quota-dot" style="background: #10b981;"></span>
+          <span class="quota-text"><strong id="lbl-total-count">827</strong> เรื่อง</span>
+          <span class="quota-saved-tag" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">ดูฟรี ไม่จำกัด ⚡</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+
+      <!-- ================= VIEW 1: BROWSE / FEED ================= -->
+      <section id="view-feed" class="view-section active">
+        
+        <!-- Hero Spotlight Banner -->
+        <div id="hero-banner" class="hero-spotlight">
+          <div class="hero-backdrop" id="hero-bg"></div>
+          <div class="hero-overlay"></div>
+          <div class="hero-content">
+            <div class="hero-badges">
+              <span class="badge-provider" id="hero-provider" style="background: rgba(16, 185, 129, 0.25); color: #34d399; border-color: rgba(16, 185, 129, 0.4);">RONGYOK</span>
+              <span class="badge-rating">★ <span id="hero-rating">9.8</span></span>
+              <span class="badge-episodes" id="hero-episodes">ครบทุกตอน</span>
+            </div>
+            <h1 class="hero-title" id="hero-title">กำลังโหลดซีรีส์เด่น...</h1>
+            <p class="hero-synopsis" id="hero-synopsis">...</p>
+            <div class="hero-actions">
+              <button class="btn btn-primary btn-play-hero" id="btn-hero-play" style="background: linear-gradient(135deg, #059669, #10b981);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                ดูเลย ตอนที่ 1 (ฟรี)
+              </button>
+              <button class="btn btn-secondary" id="btn-hero-detail">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="16" x2="12" y2="12"></line>
+                  <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+                เรื่องย่อ / รายชื่อตอน
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="content-container">
+          
+          <!-- Continue Watching Row (Saved locally) -->
+          <div id="section-continue" class="section-block hidden">
+            <div class="section-header">
+              <h2 class="section-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                ดูค้างไว้ (Continue Watching)
+              </h2>
+              <button id="btn-clear-history" class="btn-text">ล้างประวัติ</button>
+            </div>
+            <div class="continue-scroll" id="continue-list">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+
+          <!-- Filter Bar (Audio & Genres) -->
+          <div class="filter-wrapper">
+            <!-- Audio / Language Pills -->
+            <div class="filter-group">
+              <span class="filter-label">เสียง:</span>
+              <div class="pills-scroll" id="lang-pills">
+                <button class="pill active" data-lang="all">ทั้งหมด (827 เรื่อง)</button>
+                <button class="pill" data-lang="dubbed">🎙️ พากย์ไทย</button>
+                <button class="pill" data-lang="subbed">💬 ซับไทย</button>
+              </div>
+            </div>
+
+            <!-- Genre Pills -->
+            <div class="filter-group">
+              <span class="filter-label">หมวดหมู่:</span>
+              <div class="pills-scroll" id="genre-pills">
+                <button class="pill-genre active" data-genre="ทั้งหมด">ทั้งหมด</button>
+                <button class="pill-genre" data-genre="ประธานบริษัท (CEO)">ประธานบริษัท</button>
+                <button class="pill-genre" data-genre="แก้แค้น (Revenge)">แก้แค้น</button>
+                <button class="pill-genre" data-genre="รักโรแมนติก (Romance)">รักโรแมนติก</button>
+                <button class="pill-genre" data-genre="แฟนตาซี (Fantasy)">แฟนตาซี</button>
+                <button class="pill-genre" data-genre="ย้อนเวลา / กำเนิดใหม่ (Rebirth)">ย้อนเวลา/เกิดใหม่</button>
+                <button class="pill-genre" data-genre="ตระกูลไฮโซ (Billionaire)">ตระกูลไฮโซ</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section: Drama Catalog Grid -->
+          <div class="section-block">
+            <div class="section-header">
+              <h2 class="section-title" id="grid-title">ซีรีส์ทั้งหมดในระบบ (All Series)</h2>
+              <span class="drama-counter" id="grid-counter">0 เรื่อง</span>
+            </div>
+            
+            <div class="drama-grid" id="drama-cards-grid">
+              <!-- Drama cards will be dynamically inserted here -->
+            </div>
+
+            <!-- Load More Button -->
+            <div id="wrap-load-more" class="load-more-wrap" style="text-align: center; margin: 40px 0;">
+              <button id="btn-load-more" class="btn btn-secondary" style="padding: 14px 40px; font-size: 1rem; border-radius: 9999px;">
+                โหลดซีรีส์เพิ่มเติม (+48 เรื่อง)
+              </button>
+            </div>
+
+            <!-- Empty / No Results Message -->
+            <div id="no-results" class="empty-state hidden">
+              <div class="empty-icon">🎬</div>
+              <h3>ไม่พบซีรีส์ที่ตรงกับคำค้นหา</h3>
+              <p>ลองค้นหาด้วยคำอื่น หรือกดดูทั้งหมด</p>
+              <button class="btn btn-secondary" id="btn-reset-filter">รีเซ็ตตัวกรอง</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ================= VIEW 2: VERTICAL PLAYER ================= -->
+      <section id="view-player" class="view-section player-view">
+        <div class="player-layout">
+          
+          <!-- Back button bar -->
+          <div class="player-top-bar">
+            <button id="btn-back-to-browse" class="btn-back">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>กลับหน้ารายการซีรีส์</span>
+            </button>
+          </div>
+
+          <div class="player-main-stage">
+            
+            <!-- 9:16 Vertical Phone Player Wrapper -->
+            <div class="vertical-phone-container">
+              <div class="phone-frame" id="screen-container">
+                
+                <!-- Inner 9:16 Strict Aspect Ratio Box -->
+                <div class="video-ratio-box" id="video-ratio-box">
+
+                  <!-- Video Element -->
+                  <video id="video-element" class="video-element" playsinline webkit-playsinline></video>
+
+                  <!-- Double-tap visual indicators -->
+                  <div id="seek-ripple-left" class="seek-ripple-indicator left hidden">
+                    <div class="ripple-circle">◀◀ -5s</div>
+                  </div>
+                  <div id="seek-ripple-right" class="seek-ripple-indicator right hidden">
+                    <div class="ripple-circle">+5s ▶▶</div>
+                  </div>
+
+                  <!-- Loading Spinner -->
+                  <div id="video-loader" class="video-loader-overlay hidden">
+                    <div class="spinner"></div>
+                    <span class="loader-text">กำลังโหลดสตรีม...</span>
+                  </div>
+
+                  <!-- Play / Pause Overlay Icon -->
+                  <div id="play-overlay" class="play-overlay-btn hidden">
+                    <div class="play-icon-circle">
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <!-- Floating Top Overlay Info -->
+                  <div class="player-overlay-top">
+                    <span class="overlay-tag" id="overlay-provider" style="background: rgba(16, 185, 129, 0.3); color: #34d399;">RONGYOK</span>
+                    
+                    <!-- Episode Selector Pill (clickable on mobile & desktop) -->
+                    <button id="btn-open-ep-drawer" class="overlay-ep-pill-btn" title="คลิกเพื่อเลือกตอน">
+                      <span id="overlay-ep-title">ตอนที่ 1</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                  </div>
+
+                  <!-- Floating Bottom Video Controls -->
+                  <div class="player-overlay-bottom">
+                    <!-- Progress Bar Scrubber -->
+                    <div class="scrubber-bar-container">
+                      <input type="range" id="video-scrubber" min="0" max="100" value="0" step="0.1" class="scrubber-slider">
+                    </div>
+                    
+                    <div class="player-controls-row">
+                      <!-- Left: Play/Pause & Time -->
+                      <div class="controls-left">
+                        <button id="btn-play-toggle" class="ctrl-btn" title="เล่น / พัก">
+                          <svg id="icon-play" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                          </svg>
+                          <svg id="icon-pause" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="6" y="4" width="4" height="16"></rect>
+                            <rect x="14" y="4" width="4" height="16"></rect>
+                          </svg>
+                        </button>
+
+                        <button id="btn-mute-toggle" class="ctrl-btn" title="ปิด/เปิดเสียง">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                          </svg>
+                        </button>
+
+                        <div class="time-display">
+                          <span id="time-current">00:00</span> / <span id="time-duration">00:00</span>
+                        </div>
+                      </div>
+
+                      <!-- Right: Autoplay & Speed & Fullscreen -->
+                      <div class="controls-right">
+                        <label class="toggle-autoplay" title="เล่นตอนถัดไปอัตโนมัติ">
+                          <input type="checkbox" id="chk-autoplay" checked>
+                          <span>เล่นต่อเนื่อง</span>
+                        </label>
+                        <button id="btn-speed" class="ctrl-btn text-btn" title="ความเร็ว">1.0x</button>
+                        <button id="btn-fullscreen" class="ctrl-btn" title="เต็มจอแนวตั้ง (9:16)">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Floating Next / Prev Quick Switch Buttons -->
+                  <div class="floating-episode-nav">
+                    <button id="btn-floating-prev" class="floating-nav-btn" title="ตอนก่อนหน้า (ปัดลง)">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                      </svg>
+                    </button>
+                    <button id="btn-floating-next" class="floating-nav-btn" title="ตอนถัดไป (ปัดขึ้น)">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                    </button>
+                  </div>
+
+                </div><!-- End video-ratio-box -->
+
+              </div>
+            </div>
+
+            <!-- Player Sidebar (Drama Details & Episode List on Desktop) -->
+            <div class="player-sidebar">
+              <div class="sidebar-header">
+                <span class="badge-provider" id="side-drama-provider" style="background: rgba(16, 185, 129, 0.25); color: #34d399; border-color: rgba(16, 185, 129, 0.4);">RONGYOK</span>
+                <span class="badge-rating">★ <span id="side-drama-rating">9.5</span></span>
+                <span class="badge-episodes" id="side-drama-total">ตอนทั้งหมด</span>
+              </div>
+              <h2 class="sidebar-title" id="side-drama-title">ชื่อซีรีส์</h2>
+              <div class="sidebar-synopsis collapsed" id="side-drama-synopsis">เรื่องย่อ...</div>
+              <button id="btn-toggle-synopsis" class="btn-text">อ่านเพิ่มเติม</button>
+
+              <hr class="sidebar-divider">
+
+              <!-- Episode Selector Grid -->
+              <div class="episodes-section">
+                <div class="episodes-header">
+                  <h3>เลือกตอน (<span id="ep-count-lbl">0</span> ตอน)</h3>
+                  <span class="ep-hint">ปัดขึ้น/ลง หรือกด Spacebar</span>
+                </div>
+                <div class="episodes-grid" id="episodes-grid">
+                  <!-- Buttons Ep 1, 2, 3... generated dynamically -->
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Mobile Bottom Sheet Episode Drawer -->
+    <div id="mobile-ep-drawer" class="mobile-drawer-overlay hidden">
+      <div class="drawer-backdrop" id="drawer-backdrop"></div>
+      <div class="drawer-sheet">
+        <div class="drawer-header">
+          <div class="drawer-handle"></div>
+          <div class="drawer-title-row">
+            <h3>เลือกตอน (<span id="drawer-ep-count">0</span> ตอน)</h3>
+            <button id="btn-close-drawer" class="btn-icon-close">✕</button>
+          </div>
+        </div>
+        <div class="drawer-body">
+          <div class="drawer-episodes-grid" id="drawer-episodes-grid">
+            <!-- Buttons Ep 1, 2, 3... synced dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Toast Notification -->
+    <div id="toast" class="toast-notification hidden">
+      <span id="toast-message">แจ้งเตือน</span>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="/static/js/player.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
