@@ -246,18 +246,19 @@ async def api_drama_detail(request):
 async def api_episodes(request):
     """
     Get full episode list for RongYok drama.
-    Fetches real episode count directly from RongYok watch page.
+    Fetches real episode count directly from RongYok watch page, falling back to seed_data.json.
     """
     drama_id = request.path_params.get("id")
     series_id = drama_id[3:] if drama_id.startswith("ry-") else drama_id
 
-    cache_key = f"episodes:rongyok:{series_id}"
+    cache_key = f"episodes:rongyok:v2:{series_id}"
     cached = get_cached(cache_key)
     if cached:
         return JSONResponse({"status": True, "episodes": cached, "source": "cache"})
 
-    ep_count = 60
-    # Fetch real episode count from watch page
+    ep_count = 0
+    source = "live"
+    # 1. Fetch real episode count from watch page
     try:
         url = f"{RONGYOK_BASE}/watch/?series_id={series_id}"
         async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
@@ -274,13 +275,28 @@ async def api_episodes(request):
     except Exception as e:
         print(f"Error resolving episode count for {series_id}: {e}")
 
+    # 2. Fallback to seed_data.json real episode count
+    if not ep_count:
+        seed = get_seed_data()
+        for d in seed.get("dramas", []):
+            if str(d.get("series_id")) == str(series_id) or d.get("id") == f"ry-{series_id}":
+                if d.get("episodes"):
+                    ep_count = int(d["episodes"])
+                    source = "catalog"
+                break
+
+    if not ep_count:
+        ep_count = 60
+        source = "fallback"
+
     episodes = [
         {"episode": ep, "title": f"ตอนที่ {ep}", "duration": "1:30", "is_free": True}
         for ep in range(1, ep_count + 1)
     ]
 
-    set_cached(cache_key, "episodes", episodes, 86400 * 30)
-    return JSONResponse({"status": True, "episodes": episodes, "source": "live"})
+    if source != "fallback":
+        set_cached(cache_key, "episodes", episodes, 86400 * 30)
+    return JSONResponse({"status": True, "episodes": episodes, "source": source})
 
 async def api_play(request):
     """
@@ -327,14 +343,40 @@ async def api_play(request):
 
 async def api_image_proxy(request):
     """
-    Smart on-demand image proxy and disk cache for any poster.
+    Smart on-demand image proxy and disk cache for any poster (by ?url= or ?sid=).
     """
     img_url = request.query_params.get("url", "").strip()
-    if not img_url:
-        return JSONResponse({"error": "No url provided"}, status_code=400)
+    sid = request.query_params.get("sid", "").strip().replace("ry-", "")
 
-    url_hash = hashlib.md5(img_url.encode()).hexdigest()
-    cached_file = os.path.join(POSTERS_DIR, f"cache_{url_hash}.jpg")
+    if sid:
+        for ext in (".webp", ".jpg"):
+            local_file = os.path.join(POSTERS_DIR, f"ry-{sid}{ext}")
+            if os.path.exists(local_file) and os.path.getsize(local_file) > 500:
+                return FileResponse(local_file)
+
+        # Resolve real poster_url from watch page
+        try:
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+                w_resp = await client.get(f"{RONGYOK_BASE}/watch/?series_id={sid}", headers=RONGYOK_HEADERS)
+                if w_resp.status_code == 200:
+                    m = re.search(r'const\s+seriesData\s*=\s*(\{.*?\});\s*\n', w_resp.text, re.DOTALL)
+                    if m:
+                        sdata = json.loads(m.group(1))
+                        rel_poster = sdata.get("poster_url") or sdata.get("jpg_url") or ""
+                        if rel_poster:
+                            img_url = f"{RONGYOK_BASE}/{rel_poster.lstrip('/')}"
+        except Exception:
+            pass
+
+    if not img_url:
+        return JSONResponse({"error": "No url or sid provided"}, status_code=400)
+
+    if sid:
+        ext = ".jpg" if img_url.lower().endswith(".jpg") else ".webp"
+        cached_file = os.path.join(POSTERS_DIR, f"ry-{sid}{ext}")
+    else:
+        url_hash = hashlib.md5(img_url.encode()).hexdigest()
+        cached_file = os.path.join(POSTERS_DIR, f"cache_{url_hash}.jpg")
 
     if os.path.exists(cached_file) and os.path.getsize(cached_file) > 500:
         return FileResponse(cached_file)
@@ -356,14 +398,45 @@ async def api_image_proxy(request):
 
     return JSONResponse({"error": "Image not found"}, status_code=404)
 
+async def api_sync(request):
+    """
+    On-demand catalog & poster auto-update endpoint.
+    """
+    import asyncio
+    from scripts.auto_update import run_sync
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, run_sync, False, 35)
+    return JSONResponse({"status": True, "sync": result})
+
 async def index(request):
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+# ──────────────────────────────────────────────
+# BACKGROUND AUTO-UPDATER
+# ──────────────────────────────────────────────
+
+def _start_background_auto_updater():
+    import threading
+    def _worker():
+        # Wait 10s after boot, then check for new series every 6 hours
+        time.sleep(10)
+        while True:
+            try:
+                from scripts.auto_update import run_sync
+                run_sync(sync_all_metadata=False, max_new=25)
+            except Exception as e:
+                print(f"[Auto-Update Background Error]: {e}")
+            time.sleep(6 * 3600)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
 
 # ──────────────────────────────────────────────
 # APP BOOT
 # ──────────────────────────────────────────────
 
 init_db()
+_start_background_auto_updater()
 
 routes = [
     Route("/", endpoint=index),
@@ -374,6 +447,7 @@ routes = [
     Route("/api/episodes/{id}", endpoint=api_episodes, methods=["GET"]),
     Route("/api/play/{id}/{ep}", endpoint=api_play, methods=["GET"]),
     Route("/api/proxy-image", endpoint=api_image_proxy, methods=["GET"]),
+    Route("/api/sync", endpoint=api_sync, methods=["GET", "POST"]),
     Mount("/static", app=StaticFiles(directory=STATIC_DIR), name="static"),
     Mount("/data", app=StaticFiles(directory=DATA_DIR), name="data"),
 ]
@@ -389,7 +463,7 @@ middleware = [
             "http://127.0.0.1:8000",
         ],
         allow_origin_regex=r"http://192\.168\.\d+\.\d+(:\d+)?",  # any LAN IP
-        allow_methods=["GET", "OPTIONS"],
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
 ]
@@ -401,7 +475,7 @@ if __name__ == "__main__":
     print("\n" + "="*55)
     print(">> SHORTFLIX (100% RONGYOK EDITION)")
     print(">> URL: http://localhost:8000")
-    print(">> Catalog: 800+ Real Thai Dubbed / Subbed Dramas")
-    print(">> Unlimited Playback via RongYok Direct Stream")
+    print(">> Catalog: 850+ Real Thai Dubbed / Subbed Dramas")
+    print(">> Auto-Update & Poster Sync: ENABLED")
     print("="*55 + "\n")
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

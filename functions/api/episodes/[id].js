@@ -14,7 +14,8 @@ export async function onRequestGet(context) {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
   };
 
-  let epCount = 60;
+  let epCount = 0;
+  let source = 'rongyok_cf_edge';
 
   try {
     const resp = await fetch(url, { headers });
@@ -36,6 +37,30 @@ export async function onRequestGet(context) {
     console.error(`Error resolving episodes for ${seriesId}:`, err);
   }
 
+  if (!epCount) {
+    try {
+      const seedUrl = new URL('/data/seed_data.json', context.request.url);
+      const seedResp = context.env && context.env.ASSETS
+        ? await context.env.ASSETS.fetch(new Request(seedUrl))
+        : await fetch(seedUrl);
+      if (seedResp.ok) {
+        const seed = await seedResp.json();
+        const found = (seed.dramas || []).find(
+          d => String(d.series_id) === String(seriesId) || d.id === `ry-${seriesId}`
+        );
+        if (found && found.episodes) {
+          epCount = parseInt(found.episodes, 10);
+          source = 'catalog';
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (!epCount) {
+    epCount = 60;
+    source = 'fallback';
+  }
+
   const episodes = [];
   for (let i = 1; i <= epCount; i++) {
     episodes.push({
@@ -50,7 +75,7 @@ export async function onRequestGet(context) {
     status: true,
     series_id: seriesId,
     episodes: episodes,
-    source: 'rongyok_cf_edge'
+    source: source
   }), {
     status: 200,
     headers: {

@@ -120,7 +120,8 @@ async function handleApiRequest(request, url, env) {
     const dramaId = epMatch[1];
     const seriesId = dramaId.startsWith('ry-') ? dramaId.substring(3) : dramaId;
 
-    let epCount = 60;
+    let epCount = 0;
+    let source = 'rongyok_cf_edge';
     try {
       const resp = await fetch(`https://rongyok.com/watch/?series_id=${seriesId}`, {
         headers: {
@@ -144,6 +145,29 @@ async function handleApiRequest(request, url, env) {
       }
     } catch (e) {}
 
+    // Fallback to synced seed_data.json real episode count if CF ASN was blocked
+    if (!epCount) {
+      try {
+        const seedReq = new Request(new URL('/data/seed_data.json', request.url));
+        const seedResp = env.ASSETS ? await env.ASSETS.fetch(seedReq) : await fetch(seedReq);
+        if (seedResp.ok) {
+          const seed = await seedResp.json();
+          const found = (seed.dramas || []).find(
+            d => String(d.series_id) === String(seriesId) || d.id === `ry-${seriesId}`
+          );
+          if (found && found.episodes) {
+            epCount = parseInt(found.episodes, 10);
+            source = 'catalog';
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!epCount) {
+      epCount = 60;
+      source = 'fallback';
+    }
+
     const episodes = [];
     for (let i = 1; i <= epCount; i++) {
       episodes.push({
@@ -158,7 +182,7 @@ async function handleApiRequest(request, url, env) {
       status: true,
       series_id: seriesId,
       episodes: episodes,
-      source: 'rongyok_cf_edge'
+      source: source
     }), {
       status: 200,
       headers: {

@@ -420,7 +420,11 @@ class ShortFlixApp {
     this.hasMore = endIdx < totalCount;
 
     if (this.lblTotalCount) {
-      this.lblTotalCount.textContent = totalCount;
+      this.lblTotalCount.textContent = this.masterCatalog.length || totalCount;
+    }
+    const pillAll = document.getElementById('pill-lang-all') || document.querySelector('#lang-pills .pill[data-lang="all"]');
+    if (pillAll && this.masterCatalog.length) {
+      pillAll.textContent = `ทั้งหมด (${this.masterCatalog.length} เรื่อง)`;
     }
 
     if (!append && paginatedDramas.length > 0 && !this.featuredDrama) {
@@ -435,12 +439,15 @@ class ShortFlixApp {
 
   renderHero(drama) {
     if (!drama) return;
-    this.heroBg.style.backgroundImage = `url(${drama.banner || drama.cover})`;
+    const bgUrl = drama.banner || drama.cover || drama.remote_cover || '';
+    this.heroBg.style.backgroundImage = `url("${bgUrl}")`;
     this.heroTitle.textContent = drama.title;
     this.heroSynopsis.textContent = drama.synopsis;
     this.heroProvider.textContent = 'RONGYOK';
-    this.heroRating.textContent = drama.rating || '9.8';
-    this.heroEpisodes.textContent = `${drama.episodes || 60} ตอน (จบแล้ว)`;
+    if (this.heroRating) {
+      this.heroRating.textContent = '';
+    }
+    this.heroEpisodes.textContent = drama.episodes ? `${drama.episodes} ตอน (จบแล้ว)` : 'ครบทุกตอน';
   }
 
   renderDramaGrid(dramas, append = false) {
@@ -456,6 +463,7 @@ class ShortFlixApp {
     this.noResults.classList.add('hidden');
 
     const sliceToRender = append ? dramas.slice(-this.pageSize) : dramas;
+    const playBase = (typeof window !== 'undefined' && window.PLAY_SERVER) ? window.PLAY_SERVER.replace(/\/$/, '') : '';
 
     sliceToRender.forEach(drama => {
       const card = document.createElement('div');
@@ -466,13 +474,14 @@ class ShortFlixApp {
       const badgeColor = isSub ? 'background: rgba(16, 185, 129, 0.9);' : 'background: rgba(37, 99, 235, 0.9);';
       const badgeText = isSub ? 'ซับไทย' : 'พากย์ไทย';
       const sid = drama.series_id || (drama.id ? drama.id.replace('ry-', '') : '100309804');
+      const fallbackPoster = drama.remote_cover || `${playBase}/api/proxy-image?sid=${sid}`;
+      const epText = drama.episodes ? `${drama.episodes} ตอน` : 'ครบทุกตอน';
 
       card.innerHTML = `
         <div class="card-poster-wrap">
-          <img class="card-poster" src="${drama.cover}" alt="${drama.title}" loading="lazy" referrerpolicy="no-referrer" data-sid="${sid}" onerror="this.onerror=null; this.src='https://rongyok.com/images/poster/${sid}.webp';">
+          <img class="card-poster" src="${drama.cover}" alt="${drama.title}" loading="lazy" referrerpolicy="no-referrer" data-sid="${sid}" onerror="this.onerror=null; this.src='${fallbackPoster}';">
           <span class="card-badge-top" style="${badgeColor}">${badgeText}</span>
-          <span class="card-badge-right">★ ${drama.rating || '9.5'}</span>
-          <span class="card-ep-counter">${drama.episodes || 60} ตอน</span>
+          <span class="card-ep-counter" data-ep-sid="${sid}">${epText}</span>
         </div>
         <div class="card-content">
           <h3 class="card-title" title="${drama.title}">${drama.title}</h3>
@@ -606,7 +615,9 @@ class ShortFlixApp {
     // Fill Sidebar Details
     this.sideTitle.textContent = drama.title;
     this.sideProvider.textContent = 'RONGYOK';
-    this.sideRating.textContent = drama.rating || '9.8';
+    if (this.sideRating) {
+      this.sideRating.textContent = '';
+    }
     this.sideSynopsis.textContent = drama.synopsis || 'ไม่มีเรื่องย่อ';
 
     // Build Episode grid dynamically from server
@@ -622,18 +633,36 @@ class ShortFlixApp {
       this.drawerGrid.innerHTML = '<div style="color: #9ca3af; padding: 10px; grid-column: span 5; text-align: center;">กำลังโหลดรายชื่อตอน...</div>';
     }
 
-    let total = drama.episodes || 60;
-    
-    try {
-      const res = await fetch(`/api/episodes/${drama.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status && data.episodes && data.episodes.length > 0) {
-          total = data.episodes.length;
+    let total = drama.episodes || 0;
+    const playBase = (typeof window !== 'undefined' && window.PLAY_SERVER) ? window.PLAY_SERVER.replace(/\/$/, '') : '';
+    const epUrls = playBase ? [`${playBase}/api/episodes/${drama.id}`, `/api/episodes/${drama.id}`] : [`/api/episodes/${drama.id}`];
+
+    for (const epUrl of epUrls) {
+      try {
+        const res = await fetch(epUrl);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status && data.episodes && data.episodes.length > 0) {
+            if (data.source !== 'fallback' || !total) {
+              total = data.episodes.length;
+              drama.episodes = total;
+            }
+            break;
+          }
         }
+      } catch (e) {
+        // try next endpoint or keep catalog episode count
       }
-    } catch (e) {
-      console.warn('Using fallback episode count:', e);
+    }
+
+    if (!total) total = 60;
+
+    // Update card episode badge in grid if visible
+    const sid = drama.series_id || (drama.id ? drama.id.replace('ry-', '') : '');
+    if (sid) {
+      document.querySelectorAll(`[data-ep-sid="${sid}"]`).forEach(el => {
+        el.textContent = `${total} ตอน`;
+      });
     }
 
     this.sideTotal.textContent = `${total} ตอน`;
