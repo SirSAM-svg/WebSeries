@@ -353,8 +353,27 @@
 
   </div>
 
+  <!-- ============================================================
+       HYBRID MODE CONFIG — RongYok Proxy Server
+       ============================================================
+       If you're running server.py on your local machine or a VPS,
+       set PLAY_SERVER to that machine's address so video play requests
+       route to a Thai residential/VPS IP instead of Cloudflare
+       (which is blocked by RongYok's ASN firewall).
+
+       Examples:
+         Local WiFi  : 'http://192.168.1.167:8000'
+         Thai VPS    : 'https://yourserver.th.example.com'
+         Off (CF)    : ''  or just remove this line
+
+       Leave empty ('') to use the Cloudflare Worker (currently 403).
+       ============================================================ -->
+  <script>
+    window.PLAY_SERVER = 'http://192.168.1.167:8000'; // ← change to your server IP
+  </script>
+
   <!-- Scripts -->
-  <script src="/static/js/player.js?v=3.2"></script>
-  <script src="/static/js/app.js?v=3.2"></script>
+  <script src="/static/js/player.js?v=3.3"></script>
+  <script src="/static/js/app.js?v=3.3"></script>
 </body>
 </html>

@@ -317,7 +317,11 @@ class VerticalPlayer {
 
     try {
       const provider = drama.provider || 'rongyok';
-      const res = await fetch(`/api/play/${drama.id}/${this.currentEp}?provider=${provider}`);
+      // window.PLAY_SERVER lets the hybrid mode route /api/play to a local/VPS server
+      // that runs from a Thai residential/VPS IP (bypasses RongYok's CF ASN block).
+      // Set window.PLAY_SERVER = 'http://192.168.1.xxx:8000' in index.html to enable.
+      const playBase = (typeof window !== 'undefined' && window.PLAY_SERVER) ? window.PLAY_SERVER.replace(/\/$/, '') : '';
+      const res = await fetch(`${playBase}/api/play/${drama.id}/${this.currentEp}?provider=${provider}`);
       if (!res.ok) {
         let msg = `API HTTP ${res.status}`;
         try {

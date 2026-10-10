@@ -10,6 +10,8 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import JSONResponse, FileResponse
 from starlette.staticfiles import StaticFiles
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -376,7 +378,23 @@ routes = [
     Mount("/data", app=StaticFiles(directory=DATA_DIR), name="data"),
 ]
 
-app = Starlette(debug=True, routes=routes)
+middleware = [
+    Middleware(
+        CORSMiddleware,
+        # Allow requests from Cloudflare deploy + localhost dev + any LAN IP
+        allow_origins=[
+            "https://webseries.sirapongsam.workers.dev",
+            "http://localhost:8000",
+            "http://localhost:3000",
+            "http://127.0.0.1:8000",
+        ],
+        allow_origin_regex=r"http://192\.168\.\d+\.\d+(:\d+)?",  # any LAN IP
+        allow_methods=["GET", "OPTIONS"],
+        allow_headers=["*"],
+    )
+]
+
+app = Starlette(debug=True, routes=routes, middleware=middleware)
 
 if __name__ == "__main__":
     import uvicorn
