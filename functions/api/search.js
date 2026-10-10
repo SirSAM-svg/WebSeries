@@ -14,6 +14,7 @@ export async function onRequestGet(context) {
   }
 
   const qLower = query.toLowerCase();
+  const tokens = qLower.split(/\s+/).filter(Boolean);
   let matches = [];
 
   try {
@@ -24,11 +25,15 @@ export async function onRequestGet(context) {
     if (resp.ok) {
       const seed = await resp.json();
       const dramas = seed.dramas || [];
-      matches = dramas.filter(d => 
-        (d.title && d.title.toLowerCase().includes(qLower)) ||
-        (d.synopsis && d.synopsis.toLowerCase().includes(qLower)) ||
-        (d.genre && d.genre.some(g => g.toLowerCase().includes(qLower)))
-      );
+      matches = dramas.filter(d => {
+        const title = (d.title || '').toLowerCase();
+        const synopsis = (d.synopsis || '').toLowerCase();
+        const genres = Array.isArray(d.genre) ? d.genre.map(g => g.toLowerCase()).join(' ') : '';
+        const lang = (d.language || '').toLowerCase();
+        const sid = String(d.series_id || d.id || '').toLowerCase();
+        const combined = `${title} ${genres} ${lang} ${synopsis} ${sid}`;
+        return combined.includes(qLower) || tokens.every(t => combined.includes(t));
+      });
     }
   } catch (err) {
     console.error('Catalog search error:', err);

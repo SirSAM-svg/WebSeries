@@ -4,7 +4,8 @@
   "compatibility_date": "2024-09-23",
   "main": "_worker.js",
   "assets": {
-    "directory": "."
+    "directory": ".",
+    "binding": "ASSETS"
   },
   "observability": {
     "enabled": true
