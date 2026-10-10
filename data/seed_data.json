@@ -25,27 +25,63 @@
     "ตระกูลไฮโซ (Billionaire)"
   ],
   "featured": {
-    "id": "ry-100309804",
-    "series_id": 100309804,
+    "id": "ry-100056493",
+    "series_id": 100056493,
     "provider": "rongyok",
-    "title": "จำสามีผิดแต่รักถูกคน",
-    "english_title": "RongYok Series 100309804",
-    "cover": "https://rongyok.com/images/poster/จำสามีผิดแต่รักถูกคน-พากย์ไทย-2026-433faa53.webp",
+    "title": "สามีสองวัยหัวใจดวงเดียว",
+    "english_title": "RongYok Series 100056493",
+    "cover": "/static/posters/ry-100056493.webp",
     "genre": [
       "หนังสั้นจีน",
-      "พากย์ไทย",
-      "รักโรแมนติก (Romance)"
+      "พากย์ไทย"
     ],
-    "rating": 9.5,
+    "rating": 9.6,
     "episodes": 60,
-    "views": "1.5M",
+    "views": "New",
     "language": "พากย์ไทย (เต็มเรื่อง)",
-    "synopsis": "ซีรีส์สั้นเรื่อง จำสามีผิดแต่รักถูกคน พากย์ไทย รับชมได้แบบเต็มเรื่องฟรี ไม่มีโฆษณาคั่น",
+    "synopsis": "ซีรีส์สั้นมาใหม่เรื่อง สามีสองวัยหัวใจดวงเดียว พากย์ไทย รับชมฟรี ไม่มีโฆษณา",
     "status": "จบแล้ว",
-    "release_year": 2024,
-    "banner": "https://rongyok.com/images/poster/จำสามีผิดแต่รักถูกคน-พากย์ไทย-2026-433faa53.webp"
+    "release_year": 2024
   },
   "dramas": [
+    {
+      "id": "ry-100056493",
+      "series_id": 100056493,
+      "provider": "rongyok",
+      "title": "สามีสองวัยหัวใจดวงเดียว",
+      "english_title": "RongYok Series 100056493",
+      "cover": "/static/posters/ry-100056493.webp",
+      "genre": [
+        "หนังสั้นจีน",
+        "พากย์ไทย"
+      ],
+      "rating": 9.6,
+      "episodes": 60,
+      "views": "New",
+      "language": "พากย์ไทย (เต็มเรื่อง)",
+      "synopsis": "ซีรีส์สั้นมาใหม่เรื่อง สามีสองวัยหัวใจดวงเดียว พากย์ไทย รับชมฟรี ไม่มีโฆษณา",
+      "status": "จบแล้ว",
+      "release_year": 2024
+    },
+    {
+      "id": "ry-100439312",
+      "series_id": 100439312,
+      "provider": "rongyok",
+      "title": "เซียนทองคำลงสู่โลก",
+      "english_title": "RongYok Series 100439312",
+      "cover": "/static/posters/ry-100439312.webp",
+      "genre": [
+        "หนังสั้นจีน",
+        "พากย์ไทย"
+      ],
+      "rating": 9.6,
+      "episodes": 60,
+      "views": "New",
+      "language": "พากย์ไทย (เต็มเรื่อง)",
+      "synopsis": "ซีรีส์สั้นมาใหม่เรื่อง เซียนทองคำลงสู่โลก พากย์ไทย รับชมฟรี ไม่มีโฆษณา",
+      "status": "จบแล้ว",
+      "release_year": 2024
+    },
     {
       "id": "ry-100309804",
       "series_id": 100309804,
