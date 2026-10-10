@@ -4,6 +4,51 @@
  * and serves static assets via env.ASSETS.
  */
 
+export class UsRelay {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const targetUrl = url.searchParams.get('target');
+    const referer = url.searchParams.get('referer') || 'https://rongyok.com/';
+    if (!targetUrl) {
+      return new Response(JSON.stringify({ status: 400, body: 'Missing target' }), { status: 400 });
+    }
+
+    const reqHeaders = new Headers();
+    reqHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+    reqHeaders.set('Referer', referer);
+    reqHeaders.set('Origin', 'https://rongyok.com');
+    reqHeaders.set('Accept', 'application/json, text/plain, */*');
+    reqHeaders.set('Accept-Language', 'th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7');
+    reqHeaders.set('Sec-Fetch-Site', 'same-origin');
+    reqHeaders.set('Sec-Fetch-Mode', 'cors');
+    reqHeaders.set('Sec-Fetch-Dest', 'empty');
+    reqHeaders.set('X-Requested-With', 'XMLHttpRequest');
+
+    const resp = await fetch(targetUrl, {
+      method: 'GET',
+      headers: reqHeaders,
+      referrer: referer,
+      referrerPolicy: 'unsafe-url'
+    });
+
+    const body = await resp.text();
+    return new Response(JSON.stringify({
+      status: resp.status,
+      cf_ray: resp.headers.get('cf-ray') || '',
+      server: resp.headers.get('server') || '',
+      body
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -47,7 +92,8 @@ async function handleApiRequest(request, url, env) {
       status: true,
       ok: true,
       service: 'RongYok Edge API',
-      version: '2.1-diag',
+      version: '2.2-relay',
+      colo: request.cf ? request.cf.colo : 'unknown',
       timestamp: Date.now()
     }), { headers: corsHeaders });
   }
@@ -67,46 +113,57 @@ async function handleApiRequest(request, url, env) {
     reqHeaders.set('Referer', watchUrl);
     reqHeaders.set('Origin', 'https://rongyok.com');
     reqHeaders.set('Accept', 'application/json, text/plain, */*');
+    reqHeaders.set('Accept-Language', 'th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7');
+    reqHeaders.set('Sec-Fetch-Site', 'same-origin');
+    reqHeaders.set('Sec-Fetch-Mode', 'cors');
+    reqHeaders.set('Sec-Fetch-Dest', 'empty');
     reqHeaders.set('X-Requested-With', 'XMLHttpRequest');
 
     try {
-      // Step 1: Pre-fetch watch page to establish genuine session & cookies
-      let cookie = '';
-      try {
-        const watchResp = await fetch(watchUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://rongyok.com/',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      const doDiag = [];
+      // Strategy A: If we have US_RELAY Durable Object, route via North America / Europe to avoid SIN (Singapore) Geo-block
+      if (env.US_RELAY) {
+        for (const hint of ['enam', 'weur', 'wnam']) {
+          try {
+            const id = env.US_RELAY.idFromName(`relay-${hint}`);
+            const stub = env.US_RELAY.get(id, { locationHint: hint });
+            const relayResp = await stub.fetch(`https://relay.internal/?target=${encodeURIComponent(playUrl)}&referer=${encodeURIComponent(watchUrl)}`);
+            if (relayResp.ok) {
+              const relayData = await relayResp.json();
+              doDiag.push({ hint, status: relayData.status, ray: relayData.cf_ray });
+              if (relayData.status === 200) {
+                const parsed = JSON.parse(relayData.body);
+                if (parsed && parsed.ok && parsed.video_url) {
+                  return new Response(JSON.stringify({
+                    status: true,
+                    stream: { streamUrl: parsed.video_url, format: 'MP4' },
+                    source: `rongyok_do_${hint}`,
+                    ray: relayData.cf_ray,
+                    series_id: seriesId,
+                    ep: parseInt(ep, 10)
+                  }), {
+                    status: 200,
+                    headers: {
+                      ...corsHeaders,
+                      'Cache-Control': 'public, max-age=1200'
+                    }
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            doDiag.push({ hint, err: e.message });
           }
-        });
-        const rawCookies = watchResp.headers.get('set-cookie');
-        if (rawCookies) {
-          cookie = rawCookies.split(';')[0];
         }
-      } catch (e) {}
-
-      if (cookie) {
-        reqHeaders.set('Cookie', cookie);
       }
 
+      // Strategy B: Direct Edge Fetch
       let resp = await fetch(playUrl, {
         method: 'GET',
         headers: reqHeaders,
         referrer: watchUrl,
         referrerPolicy: 'unsafe-url'
       });
-
-      // If 403, try fallback with root referer
-      if (resp.status === 403) {
-        reqHeaders.set('Referer', 'https://rongyok.com/');
-        resp = await fetch(playUrl, {
-          method: 'GET',
-          headers: reqHeaders,
-          referrer: 'https://rongyok.com/',
-          referrerPolicy: 'unsafe-url'
-        });
-      }
 
       if (resp.ok) {
         const data = await resp.json();
@@ -121,7 +178,7 @@ async function handleApiRequest(request, url, env) {
             status: 200,
             headers: {
               ...corsHeaders,
-              'Cache-Control': 'public, max-age=1200' // Cache 20 mins on Cloudflare Edge
+              'Cache-Control': 'public, max-age=1200'
             }
           });
         }
@@ -137,7 +194,8 @@ async function handleApiRequest(request, url, env) {
         upstream_server: serverHeader,
         cf_mitigated: cfMitigated,
         cf_ray: cfRay,
-        body_snippet: respBody
+        do_diag: doDiag,
+        body_snippet: respBody.slice(0, 300)
       }), {
         status: 502,
         headers: corsHeaders

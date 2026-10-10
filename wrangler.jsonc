@@ -7,6 +7,20 @@
     "directory": ".",
     "binding": "ASSETS"
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "US_RELAY",
+        "class_name": "UsRelay"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["UsRelay"]
+    }
+  ],
   "observability": {
     "enabled": true
   }
