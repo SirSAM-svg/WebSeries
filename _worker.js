@@ -262,26 +262,84 @@ async function handleApiRequest(request, url, env) {
 
   // 5. Search: /api/search
   if (url.pathname === '/api/search') {
-    const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+    const rawQuery = (url.searchParams.get('q') || '').trim();
+    const q = rawQuery.toLowerCase();
     if (!q) {
       return new Response(JSON.stringify({ status: true, results: [] }), { headers: corsHeaders });
     }
+    const tokens = q.split(/\s+/).filter(Boolean);
+    let matches = [];
+
     try {
       const seedReq = new Request(new URL('/data/seed_data.json', request.url));
       const seedResp = env.ASSETS ? await env.ASSETS.fetch(seedReq) : await fetch(seedReq);
       if (seedResp.ok) {
         const seed = await seedResp.json();
-        const matches = (seed.dramas || []).filter(d =>
-          (d.title && d.title.toLowerCase().includes(q)) ||
-          (d.synopsis && d.synopsis.toLowerCase().includes(q)) ||
-          (d.genre && d.genre.some(g => g.toLowerCase().includes(q)))
-        );
-        return new Response(JSON.stringify({ status: true, results: matches }), {
-          headers: { ...corsHeaders, 'Cache-Control': 'public, max-age=1800' }
+        matches = (seed.dramas || []).filter(d => {
+          const title = (d.title || '').toLowerCase();
+          const synopsis = (d.synopsis || '').toLowerCase();
+          const genres = Array.isArray(d.genre) ? d.genre.map(g => g.toLowerCase()).join(' ') : '';
+          const lang = (d.language || '').toLowerCase();
+          const sid = String(d.series_id || d.id || '').toLowerCase();
+          const combined = `${title} ${genres} ${lang} ${synopsis} ${sid}`;
+          return combined.includes(q) || tokens.every(t => combined.includes(t));
         });
       }
     } catch (e) {}
-    return new Response(JSON.stringify({ status: true, results: [] }), { headers: corsHeaders });
+
+    // Live RongYok AJAX search fallback when < 6 local matches
+    if (matches.length < 6) {
+      try {
+        const liveResp = await fetch(`https://rongyok.com/search?ajax=load_more&keyword=${encodeURIComponent(rawQuery)}&offset=0`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': 'https://rongyok.com/search'
+          }
+        });
+        if (liveResp.ok) {
+          const liveData = await liveResp.json();
+          const html = liveData.html || '';
+          const cardRegex = /<a href=["']series\/(\d+)\/[^"']*["'][^>]*>([\s\S]*?)<\/a>/g;
+          let m;
+          while ((m = cardRegex.exec(html)) !== null) {
+            const sid = parseInt(m[1], 10);
+            const cardContent = m[2];
+            if (matches.some(item => item.series_id === sid)) continue;
+
+            const titleM = cardContent.match(/alt=["']([^"']+)["']/);
+            const title = titleM ? titleM[1] : `ซีรีส์ ${sid}`;
+            const imgM = cardContent.match(/src=["']([^"']+)["']/);
+            let poster = imgM ? imgM[1] : '';
+            if (poster && !poster.startsWith('http')) {
+              poster = `https://rongyok.com/${poster.replace(/^\/+/, '')}`;
+            }
+            const badgeM = cardContent.match(/>(พากย์ไทย|ซับไทย)</);
+            const lang = badgeM ? badgeM[1] : 'พากย์ไทย';
+
+            matches.push({
+              id: `ry-${sid}`,
+              series_id: sid,
+              provider: 'rongyok',
+              title,
+              english_title: `RongYok Series ${sid}`,
+              cover: poster || `https://rongyok.com/images/poster/${sid}.webp`,
+              genre: ['หนังสั้นจีน', lang],
+              rating: 9.5,
+              episodes: 60,
+              views: '1.2M',
+              language: `${lang} (เต็มเรื่อง)`,
+              synopsis: `ซีรีส์สั้นเรื่อง ${title} ${lang} รับชมฟรี`,
+              status: 'จบแล้ว'
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    return new Response(JSON.stringify({ status: true, results: matches }), {
+      headers: { ...corsHeaders, 'Cache-Control': 'public, max-age=1800' }
+    });
   }
 
   return new Response(JSON.stringify({ status: false, error: 'Endpoint not found' }), {

@@ -162,25 +162,34 @@ async def api_search(request):
 
     seed = get_seed_data()
     q_lower = query.lower()
+    tokens = [t for t in q_lower.split() if t]
     matches = []
 
     for d in seed.get("dramas", []):
-        if (q_lower in d.get("title", "").lower() or 
-            any(q_lower in g.lower() for g in d.get("genre", [])) or
-            q_lower in d.get("synopsis", "").lower()):
+        title = d.get("title", "").lower()
+        synopsis = d.get("synopsis", "").lower()
+        genres = " ".join(g.lower() for g in d.get("genre", []))
+        lang = d.get("language", "").lower()
+        sid = str(d.get("series_id") or d.get("id") or "").lower()
+        combined = f"{title} {genres} {lang} {synopsis} {sid}"
+
+        if q_lower in combined or (tokens and all(t in combined for t in tokens)):
             matches.append(d)
 
     # If few matches, query RongYok AJAX live search
-    if len(matches) < 4:
+    if len(matches) < 6:
         try:
-            search_url = f"{RONGYOK_BASE}/search?ajax=load_more&keyword={httpx.URL(query).raw_path.decode() if hasattr(httpx.URL(query), 'raw_path') else query}&offset=0"
             headers = {
                 **RONGYOK_HEADERS,
                 "X-Requested-With": "XMLHttpRequest",
                 "Referer": f"{RONGYOK_BASE}/search"
             }
             async with httpx.AsyncClient(timeout=8.0) as client:
-                resp = await client.get(f"{RONGYOK_BASE}/search?ajax=load_more&keyword={query}&offset=0", headers=headers)
+                resp = await client.get(
+                    f"{RONGYOK_BASE}/search",
+                    params={"ajax": "load_more", "keyword": query, "offset": 0},
+                    headers=headers
+                )
                 if resp.status_code == 200:
                     data = resp.json()
                     html = data.get("html", "")

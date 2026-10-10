@@ -170,16 +170,35 @@ body {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
-.btn-clear {
-  position: absolute;
-  right: 12px;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 0.85rem;
+.search-input-wrap input::-webkit-search-decoration,
+.search-input-wrap input::-webkit-search-cancel-button,
+.search-input-wrap input::-webkit-search-results-button,
+.search-input-wrap input::-webkit-search-results-decoration {
+  display: none;
+  -webkit-appearance: none;
 }
-.btn-clear:hover {
+
+.btn-clear,
+.btn-icon.btn-clear {
+  position: absolute;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  z-index: 2;
+  transition: var(--transition);
+}
+.btn-clear:hover,
+.btn-icon.btn-clear:hover {
+  background: rgba(255, 255, 255, 0.18);
   color: var(--text-main);
 }
 
@@ -1548,7 +1567,19 @@ body {
   }
 
   .navbar {
-    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 10px 12px;
+  }
+  .nav-search {
+    order: 3;
+    flex: 0 0 100%;
+    width: 100%;
+    max-width: 100%;
+  }
+  .search-input-wrap input {
+    padding: 9px 38px 9px 38px;
+    font-size: 16px; /* Prevents iOS Safari viewport zoom on focus */
   }
   .brand-name {
     font-size: 1.05rem;
