@@ -4,51 +4,6 @@
  * and serves static assets via env.ASSETS.
  */
 
-export class UsRelay {
-  constructor(state, env) {
-    this.state = state;
-    this.env = env;
-  }
-
-  async fetch(request) {
-    const url = new URL(request.url);
-    const targetUrl = url.searchParams.get('target');
-    const referer = url.searchParams.get('referer') || 'https://rongyok.com/';
-    if (!targetUrl) {
-      return new Response(JSON.stringify({ status: 400, body: 'Missing target' }), { status: 400 });
-    }
-
-    const reqHeaders = new Headers();
-    reqHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-    reqHeaders.set('Referer', referer);
-    reqHeaders.set('Origin', 'https://rongyok.com');
-    reqHeaders.set('Accept', 'application/json, text/plain, */*');
-    reqHeaders.set('Accept-Language', 'th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7');
-    reqHeaders.set('Sec-Fetch-Site', 'same-origin');
-    reqHeaders.set('Sec-Fetch-Mode', 'cors');
-    reqHeaders.set('Sec-Fetch-Dest', 'empty');
-    reqHeaders.set('X-Requested-With', 'XMLHttpRequest');
-
-    const resp = await fetch(targetUrl, {
-      method: 'GET',
-      headers: reqHeaders,
-      referrer: referer,
-      referrerPolicy: 'unsafe-url'
-    });
-
-    const body = await resp.text();
-    return new Response(JSON.stringify({
-      status: resp.status,
-      cf_ray: resp.headers.get('cf-ray') || '',
-      server: resp.headers.get('server') || '',
-      body
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -92,8 +47,7 @@ async function handleApiRequest(request, url, env) {
       status: true,
       ok: true,
       service: 'RongYok Edge API',
-      version: '2.2-relay',
-      colo: request.cf ? request.cf.colo : 'unknown',
+      version: '2.1',
       timestamp: Date.now()
     }), { headers: corsHeaders });
   }
@@ -113,51 +67,9 @@ async function handleApiRequest(request, url, env) {
     reqHeaders.set('Referer', watchUrl);
     reqHeaders.set('Origin', 'https://rongyok.com');
     reqHeaders.set('Accept', 'application/json, text/plain, */*');
-    reqHeaders.set('Accept-Language', 'th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7');
-    reqHeaders.set('Sec-Fetch-Site', 'same-origin');
-    reqHeaders.set('Sec-Fetch-Mode', 'cors');
-    reqHeaders.set('Sec-Fetch-Dest', 'empty');
     reqHeaders.set('X-Requested-With', 'XMLHttpRequest');
 
     try {
-      const doDiag = [];
-      // Strategy A: If we have US_RELAY Durable Object, route via North America / Europe to avoid SIN (Singapore) Geo-block
-      if (env.US_RELAY) {
-        for (const hint of ['enam', 'weur', 'wnam']) {
-          try {
-            const id = env.US_RELAY.idFromName(`relay-${hint}`);
-            const stub = env.US_RELAY.get(id, { locationHint: hint });
-            const relayResp = await stub.fetch(`https://relay.internal/?target=${encodeURIComponent(playUrl)}&referer=${encodeURIComponent(watchUrl)}`);
-            if (relayResp.ok) {
-              const relayData = await relayResp.json();
-              doDiag.push({ hint, status: relayData.status, ray: relayData.cf_ray });
-              if (relayData.status === 200) {
-                const parsed = JSON.parse(relayData.body);
-                if (parsed && parsed.ok && parsed.video_url) {
-                  return new Response(JSON.stringify({
-                    status: true,
-                    stream: { streamUrl: parsed.video_url, format: 'MP4' },
-                    source: `rongyok_do_${hint}`,
-                    ray: relayData.cf_ray,
-                    series_id: seriesId,
-                    ep: parseInt(ep, 10)
-                  }), {
-                    status: 200,
-                    headers: {
-                      ...corsHeaders,
-                      'Cache-Control': 'public, max-age=1200'
-                    }
-                  });
-                }
-              }
-            }
-          } catch (e) {
-            doDiag.push({ hint, err: e.message });
-          }
-        }
-      }
-
-      // Strategy B: Direct Edge Fetch
       let resp = await fetch(playUrl, {
         method: 'GET',
         headers: reqHeaders,
@@ -183,19 +95,10 @@ async function handleApiRequest(request, url, env) {
           });
         }
       }
-      const respBody = await resp.text();
-      const serverHeader = resp.headers.get('server') || '';
-      const cfMitigated = resp.headers.get('cf-mitigated') || '';
-      const cfRay = resp.headers.get('cf-ray') || '';
       return new Response(JSON.stringify({
         status: false,
-        error: `RongYok upstream returned HTTP ${resp.status}`,
-        upstream_status: resp.status,
-        upstream_server: serverHeader,
-        cf_mitigated: cfMitigated,
-        cf_ray: cfRay,
-        do_diag: doDiag,
-        body_snippet: respBody.slice(0, 300)
+        error: `Upstream returned HTTP ${resp.status}`,
+        upstream_status: resp.status
       }), {
         status: 502,
         headers: corsHeaders
