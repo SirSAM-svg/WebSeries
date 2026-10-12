@@ -48,8 +48,10 @@ def load_catalog():
 
 
 def save_catalog(catalog):
-    with open(SEED_PATH, "w", encoding="utf-8") as f:
-        json.dump(catalog, f, ensure_ascii=False, indent=2)
+    tmp_path = SEED_PATH + ".ry.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(catalog, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp_path, SEED_PATH)
 
 
 def make_safe_url(url: str) -> str:
@@ -347,7 +349,11 @@ def run_sync(sync_all_metadata: bool = False, max_new: int = 35) -> dict:
 
     catalog = load_catalog()
     existing_dramas = catalog.get("dramas", [])
-    existing_ids = {int(d["series_id"]) for d in existing_dramas if d.get("series_id")}
+    existing_ids = {
+        int(d["series_id"])
+        for d in existing_dramas
+        if d.get("series_id") and d.get("provider") != "goseries4k"
+    }
     print(f"Current catalog size: {len(existing_dramas)} dramas")
 
     # 1. Discover new series candidates (Homepage first, then recent Sitemap, then Search)
@@ -419,9 +425,11 @@ def run_sync(sync_all_metadata: bool = False, max_new: int = 35) -> dict:
             new_entries.append(entry)
             print(f"  + [NEW] ID {sid}: {title} ({episodes} ตอน) -> {cover_path}")
 
-    # 3. Check existing dramas that need poster repair or metadata/episode sync
+    # 3. Check existing RongYok dramas that need poster repair or metadata/episode sync
     to_repair = []
     for d in existing_dramas:
+        if d.get("provider") == "goseries4k" or str(d.get("id", "")).startswith("gs-"):
+            continue
         sid = int(d.get("series_id") or str(d.get("id", "0")).replace("ry-", ""))
         cov = (d.get("cover") or "").lstrip("/")
         cov_abs = os.path.join(ROOT_DIR, cov.replace("/", os.sep)) if cov else ""
@@ -486,11 +494,15 @@ def run_sync(sync_all_metadata: bool = False, max_new: int = 35) -> dict:
     if all_dramas:
         catalog["featured"] = all_dramas[0]
 
-    # Update provider label count
+    # Update provider label counts
     total_count = len(all_dramas)
-    for p in catalog.get("providers", []):
-        if p.get("id") == "all":
-            p["name"] = f"ทั้งหมด ({total_count} เรื่อง)"
+    gs_count = sum(1 for d in all_dramas if d.get("provider") == "goseries4k" or str(d.get("id", "")).startswith("gs-"))
+    ry_count = total_count - gs_count
+    catalog["providers"] = [
+        {"id": "all", "name": f"ทั้งหมด ({total_count} เรื่อง)"},
+        {"id": "goseries4k", "name": f"ซีรีส์/หนัง 4K ({gs_count} เรื่อง)"},
+        {"id": "rongyok", "name": f"หนังสั้นจีน ({ry_count} เรื่อง)"},
+    ]
 
     if new_entries or updated_existing > 0 or posters_repaired > 0:
         save_catalog(catalog)
@@ -499,7 +511,7 @@ def run_sync(sync_all_metadata: bool = False, max_new: int = 35) -> dict:
             f"updated {updated_existing} existing records, "
             f"repaired {posters_repaired} posters in {time.time() - t0:.1f}s."
         )
-        print(f"Total catalog size: {total_count} dramas")
+        print(f"Total catalog size: {total_count} dramas ({gs_count} GoSeries4K + {ry_count} RongYok)")
     else:
         print(f"\n[OK] Catalog is already up to date ({total_count} dramas, {time.time() - t0:.1f}s).")
 
@@ -513,4 +525,12 @@ def run_sync(sync_all_metadata: bool = False, max_new: int = 35) -> dict:
 
 if __name__ == "__main__":
     sync_all = "--sync-all" in sys.argv
+    try:
+        try:
+            from scripts.goseries_scraper import run_goseries_scrape
+        except ImportError:
+            from goseries_scraper import run_goseries_scrape
+        run_goseries_scrape(max_posts=36)
+    except Exception as e:
+        print(f"[WARN] GoSeries4K sync skipped: {e}")
     run_sync(sync_all_metadata=sync_all)

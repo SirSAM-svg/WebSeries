@@ -1,12 +1,14 @@
 /**
- * SHORTFLIX - VERTICAL VIDEO PLAYER CONTROLLER
- * Handles HLS.js streaming (.m3u8), gesture controls, episode switching, and history.
+ * SO+ SERIES & 4K MOVIES - ADAPTIVE VIDEO PLAYER CONTROLLER
+ * Handles HLS.js streaming (.m3u8 via Torbo007/GoSeries4K proxy) & MP4 (RongYok),
+ * 16:9 Widescreen + 9:16 Vertical aspect modes, dual-audio switching, gesture controls, and watch history.
  */
 
 class VerticalPlayer {
   constructor() {
     this.video = document.getElementById('video-element');
     this.screenContainer = document.getElementById('screen-container');
+    this.playerMainStage = document.getElementById('player-main-stage');
     this.loader = document.getElementById('video-loader');
     this.playOverlay = document.getElementById('play-overlay');
     this.scrubber = document.getElementById('video-scrubber');
@@ -17,6 +19,7 @@ class VerticalPlayer {
     this.iconPause = document.getElementById('icon-pause');
     this.btnMuteToggle = document.getElementById('btn-mute-toggle');
     this.chkAutoplay = document.getElementById('chk-autoplay');
+    this.btnAspectToggle = document.getElementById('btn-aspect-toggle');
     this.btnSpeed = document.getElementById('btn-speed');
     this.btnFullscreen = document.getElementById('btn-fullscreen');
     this.btnFloatingNext = document.getElementById('btn-floating-next');
@@ -28,12 +31,30 @@ class VerticalPlayer {
 
     this.currentDrama = null;
     this.currentEp = 1;
+    this.currentLangTrack = '';
+    this.currentMd5 = '';
     this.totalEpisodes = 1;
+    this.aspectMode = '9:16';
     this.hls = null;
     this.speeds = [1.0, 1.25, 1.5, 2.0];
     this.speedIndex = 0;
+    this.lastHistorySync = 0;
 
     this.initEvents();
+  }
+
+  setAspectRatio(mode = '9:16') {
+    this.aspectMode = mode;
+    const isWide = mode === '16:9';
+    if (this.playerMainStage) {
+      this.playerMainStage.classList.toggle('widescreen-mode', isWide);
+    }
+    if (this.screenContainer) {
+      this.screenContainer.classList.toggle('widescreen-frame', isWide);
+    }
+    if (this.btnAspectToggle) {
+      this.btnAspectToggle.textContent = isWide ? '16:9' : '9:16';
+    }
   }
 
   showSeekRipple(direction) {
@@ -50,7 +71,18 @@ class VerticalPlayer {
   initEvents() {
     if (!this.video) return;
 
-    // Fullscreen change listener for True 9:16 PC mode
+    // Aspect ratio toggle button (16:9 <-> 9:16)
+    if (this.btnAspectToggle) {
+      this.btnAspectToggle.addEventListener('click', () => {
+        const nextMode = this.aspectMode === '16:9' ? '9:16' : '16:9';
+        this.setAspectRatio(nextMode);
+        if (window.app) {
+          window.app.showToast(`สัดส่วนหน้าจอ: ${nextMode}`);
+        }
+      });
+    }
+
+    // Fullscreen change listener
     const handleFullscreenChange = () => {
       const isFull = !!(document.fullscreenElement || document.webkitFullscreenElement);
       this.screenContainer.classList.toggle('pc-fullscreen-active', isFull);
@@ -123,9 +155,13 @@ class VerticalPlayer {
       this.timeCurrent.textContent = this.formatTime(this.video.currentTime);
       this.timeDuration.textContent = this.formatTime(this.video.duration);
 
-      // Save continue watching progress periodically
       if (this.currentDrama) {
-        this.savePlaybackProgress(this.currentDrama.id, this.currentEp, this.video.currentTime);
+        this.savePlaybackProgress(
+          this.currentDrama.id,
+          this.currentEp,
+          this.video.currentTime,
+          this.video.duration
+        );
       }
     });
 
@@ -162,7 +198,7 @@ class VerticalPlayer {
       this.btnSpeed.textContent = `${speed.toFixed(1)}x`;
     });
 
-    // Fullscreen (Vertical 9:16)
+    // Fullscreen
     this.btnFullscreen.addEventListener('click', () => {
       const isFull = !!(document.fullscreenElement || document.webkitFullscreenElement);
       if (!isFull) {
@@ -175,7 +211,8 @@ class VerticalPlayer {
         }
         try {
           if (screen.orientation && screen.orientation.lock) {
-            screen.orientation.lock('portrait').catch(() => {});
+            const lockMode = this.aspectMode === '16:9' ? 'landscape' : 'portrait';
+            screen.orientation.lock(lockMode).catch(() => {});
           }
         } catch (e) {}
       } else {
@@ -213,7 +250,6 @@ class VerticalPlayer {
 
     // Keyboard controls
     window.addEventListener('keydown', (e) => {
-      // Don't capture when typing in search input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
       const playerView = document.getElementById('view-player');
@@ -260,10 +296,8 @@ class VerticalPlayer {
       const touchEndY = e.changedTouches[0].clientY;
       const diffY = touchStartY - touchEndY;
       if (diffY > 60) {
-        // Swiped UP -> Next Episode
         this.nextEpisode();
       } else if (diffY < -60) {
-        // Swiped DOWN -> Prev Episode
         this.prevEpisode();
       }
     }, { passive: true });
@@ -279,7 +313,7 @@ class VerticalPlayer {
 
   nextEpisode() {
     if (this.currentEp < this.totalEpisodes) {
-      this.loadEpisode(this.currentDrama, this.currentEp + 1);
+      this.loadEpisode(this.currentDrama, this.currentEp + 1, this.currentLangTrack);
     } else {
       window.app.showToast('นี่คือตอนสุดท้ายแล้ว');
     }
@@ -287,21 +321,41 @@ class VerticalPlayer {
 
   prevEpisode() {
     if (this.currentEp > 1) {
-      this.loadEpisode(this.currentDrama, this.currentEp - 1);
+      this.loadEpisode(this.currentDrama, this.currentEp - 1, this.currentLangTrack);
     } else {
       window.app.showToast('นี่คือตอนแรกแล้ว');
     }
   }
 
-  async loadEpisode(drama, epNum = 1) {
+  async loadEpisode(drama, epNum = 1, langTrack = '', md5Hash = '') {
     if (!drama) return;
     this.currentDrama = drama;
     this.currentEp = parseInt(epNum, 10);
     this.totalEpisodes = drama.episodes || 60;
+    if (langTrack) {
+      this.currentLangTrack = langTrack;
+    } else if (!this.currentLangTrack && drama.audio_tracks && drama.audio_tracks.length > 0) {
+      this.currentLangTrack = drama.audio_tracks[0];
+    }
+
+    // Automatically select 16:9 for GoSeries4K movies/series, 9:16 for RongYok short dramas
+    const isGoSeries = drama.provider === 'goseries4k' || (drama.id && String(drama.id).startsWith('gs-')) || drama.aspect_ratio === '16:9';
+    this.setAspectRatio(isGoSeries ? '16:9' : '9:16');
+
+    // Look up md5 from active episode list if available
+    let resolvedMd5 = md5Hash;
+    if (!resolvedMd5 && window.app && Array.isArray(window.app.activeEpisodeList)) {
+      const epObj = window.app.activeEpisodeList.find(e => parseInt(e.episode, 10) === this.currentEp);
+      if (epObj && epObj.md5) {
+        resolvedMd5 = epObj.md5;
+      }
+    }
+    this.currentMd5 = resolvedMd5 || '';
 
     // Update overlay tags
-    this.overlayEpTitle.textContent = `ตอนที่ ${this.currentEp}`;
-    this.overlayProvider.textContent = (drama.provider || 'dramabox').toUpperCase();
+    const langSuffix = (isGoSeries && this.currentLangTrack) ? ` (${this.currentLangTrack})` : '';
+    this.overlayEpTitle.textContent = `ตอนที่ ${this.currentEp}${langSuffix}`;
+    this.overlayProvider.textContent = isGoSeries ? 'GOSERIES 4K' : 'RONGYOK';
 
     // Update Floating Buttons state
     this.btnFloatingPrev.style.opacity = this.currentEp > 1 ? '1' : '0.4';
@@ -310,34 +364,45 @@ class VerticalPlayer {
     // Show loading spinner
     this.loader.classList.remove('hidden');
 
-    // Update Sidebar active episode button
     if (window.app) {
       window.app.updateSidebarActiveEpisode(this.currentEp);
     }
 
     try {
-      const provider = drama.provider || 'rongyok';
-      // window.PLAY_SERVER lets the hybrid mode route /api/play to a local/VPS server
-      // that runs from a Thai residential/VPS IP (bypasses RongYok's CF ASN block).
-      // Set window.PLAY_SERVER = 'http://192.168.1.xxx:8000' in index.html to enable.
+      const provider = isGoSeries ? 'goseries4k' : (drama.provider || 'rongyok');
+      const params = new URLSearchParams({ provider });
+      if (this.currentLangTrack) params.set('lang', this.currentLangTrack);
+      if (this.currentMd5) params.set('md5', this.currentMd5);
+
       const playBase = (typeof window !== 'undefined' && window.PLAY_SERVER) ? window.PLAY_SERVER.replace(/\/$/, '') : '';
-      const res = await fetch(`${playBase}/api/play/${drama.id}/${this.currentEp}?provider=${provider}`);
-      if (!res.ok) {
-        let msg = `API HTTP ${res.status}`;
+      const relUrl = `/api/play/${encodeURIComponent(drama.id)}/${this.currentEp}?${params.toString()}`;
+      const urlsToTry = playBase ? [`${playBase}${relUrl}`, relUrl] : [relUrl];
+
+      let data = null;
+      let lastErr = null;
+      for (const targetUrl of urlsToTry) {
         try {
-          const errData = await res.json();
-          if (errData && errData.error) msg += ` (${errData.error})`;
-        } catch (e) {}
-        throw new Error(msg);
+          const res = await fetch(targetUrl);
+          if (res.ok) {
+            data = await res.json();
+            if (data && data.status && data.stream && data.stream.streamUrl) {
+              break;
+            }
+          } else {
+            const errJson = await res.json().catch(() => ({}));
+            lastErr = new Error(errJson.error || `HTTP ${res.status}`);
+          }
+        } catch (fetchErr) {
+          lastErr = fetchErr;
+        }
       }
-      const data = await res.json();
-      
-      if (data.status && data.stream && data.stream.streamUrl) {
+
+      if (data && data.status && data.stream && data.stream.streamUrl) {
         const streamUrl = data.stream.streamUrl;
         const format = data.stream.format || (streamUrl.includes('.m3u8') ? 'HLS' : 'MP4');
         this.playStream(streamUrl, format);
       } else {
-        throw new Error(data.error || 'No stream data');
+        throw lastErr || new Error('ไม่พบสตรีมวิดีโอ');
       }
     } catch (err) {
       console.error('[PLAYER LOAD ERROR]', err);
@@ -347,7 +412,6 @@ class VerticalPlayer {
       }
     }
 
-    // Mark current episode in history
     this.markEpisodeWatched(drama.id, this.currentEp);
     if (window.app) {
       window.app.saveContinueWatching(drama, this.currentEp);
@@ -355,22 +419,24 @@ class VerticalPlayer {
   }
 
   playStream(streamUrl, format = 'HLS') {
-    // Destroy previous HLS instance if any
     if (this.hls) {
       this.hls.destroy();
       this.hls = null;
     }
 
-    if (streamUrl.includes('.m3u8') && Hls.isSupported()) {
+    const isHls = format === 'HLS' || streamUrl.includes('.m3u8');
+    if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
       this.hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 90
+        lowLatencyMode: false,
+        backBufferLength: 90,
+        maxBufferLength: 45,
       });
       this.hls.loadSource(streamUrl);
       this.hls.attachMedia(this.video);
       this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        this.video.play().catch(e => {
+        this.restoreSavedPosition();
+        this.video.play().catch(() => {
           this.playOverlay.classList.remove('hidden');
         });
       });
@@ -390,19 +456,34 @@ class VerticalPlayer {
         }
       });
     } else {
-      // Native MP4 or Safari native HLS
       this.video.src = streamUrl;
       this.video.load();
-      this.video.play().catch(e => {
+      this.video.addEventListener('loadedmetadata', () => this.restoreSavedPosition(), { once: true });
+      this.video.play().catch(() => {
         this.playOverlay.classList.remove('hidden');
       });
     }
   }
 
+  restoreSavedPosition() {
+    try {
+      if (!this.currentDrama) return;
+      const key = `shortflix_progress_${this.currentDrama.id}_${this.currentEp}`;
+      const saved = parseFloat(localStorage.getItem(key) || '0');
+      if (saved > 5 && (!this.video.duration || saved < this.video.duration - 10)) {
+        this.video.currentTime = saved;
+      }
+    } catch (e) {}
+  }
+
   formatTime(seconds) {
     if (isNaN(seconds)) return '00:00';
-    const m = Math.floor(seconds / 60);
+    const hrs = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
+    if (hrs > 0) {
+      return `${hrs}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   }
 
@@ -420,9 +501,23 @@ class VerticalPlayer {
     } catch (e) {}
   }
 
-  savePlaybackProgress(dramaId, epNum, time) {
+  savePlaybackProgress(dramaId, epNum, time, duration = 0) {
     try {
       localStorage.setItem(`shortflix_progress_${dramaId}_${epNum}`, time.toFixed(1));
+      const now = Date.now();
+      if (now - this.lastHistorySync > 12000) {
+        this.lastHistorySync = now;
+        fetch('/api/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            drama_id: dramaId,
+            episode: epNum,
+            position_seconds: Math.floor(time),
+            duration_seconds: Math.floor(duration || 0),
+          }),
+        }).catch(() => {});
+      }
     } catch (e) {}
   }
 }

@@ -1,32 +1,37 @@
 /**
  * Cloudflare Worker & Pages Advanced Mode Router
- * Handles Edge APIs (/api/play, /api/episodes, /api/feed, /api/search, /api/status)
+ * Handles Edge APIs for both GoSeries4K + Torbo007 (4K HLS) & RongYok (Short Dramas):
+ * - /stream/:slug/index.m3u8 & /stream/:slug/segment
+ * - /api/movies & /api/movies/:slug
+ * - /api/play/:id/:ep, /api/episodes/:id, /api/feed, /api/search, /api/status
+ * - /api/goseries/comments/:post_id
  * and serves static assets via env.ASSETS.
  */
+
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const GOSERIES_BASE = 'https://goseries4k.com';
+const TORBO_BASE = 'https://torbo007.com';
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With',
+          'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With, Range',
           'Access-Control-Max-Age': '86400',
         }
       });
     }
 
-    // Edge API Routes
-    if (url.pathname.startsWith('/api/')) {
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/stream/')) {
       return handleApiRequest(request, url, env);
     }
 
-    // Serve Static Assets (HTML, CSS, JS, Posters, JSON)
     if (env.ASSETS) {
       return env.ASSETS.fetch(request);
     }
@@ -34,6 +39,100 @@ export default {
     return new Response('Not found', { status: 404 });
   }
 };
+
+async function scrapeGoSeriesHtmlEdge(slug) {
+  const cleanSlug = decodeURIComponent(slug.replace(/^gs-/, '').replace(/^\/+|\/+$/g, ''));
+  const pageUrl = `${GOSERIES_BASE}/${encodeURIComponent(cleanSlug)}/`;
+  const resp = await fetch(pageUrl, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Accept': '*/*',
+      'Referer': `${GOSERIES_BASE}/`,
+    }
+  });
+  if (!resp.ok) return { md5: '', episodes: [], audio_tracks: [] };
+  const html = await resp.text();
+
+  const epIdToMd5 = {};
+  const cacheMatch = html.match(/window\.miru_ep_cache\s*=\s*(\{[\s\S]*?\});/);
+  if (cacheMatch) {
+    try {
+      const rawMap = JSON.parse(cacheMatch[1]);
+      for (const [btnId, iframeHtml] of Object.entries(rawMap)) {
+        const m = String(iframeHtml).match(/torbo007\.com\/embed\/([a-f0-9]{32})/);
+        if (m) epIdToMd5[String(btnId)] = m[1];
+      }
+    } catch (e) {}
+  }
+
+  const episodes = [];
+  const audioTracks = [];
+  const groupRegex = /<div class="mp-epg-title">([^<]+)<\/div><div class="mp-epg-list">([\s\S]*?)<\/div><\/div>/g;
+  let gMatch;
+  while ((gMatch = groupRegex.exec(html)) !== null) {
+    const rawLang = gMatch[1].trim();
+    const langNorm = rawLang.includes('พากย์') ? 'พากย์ไทย' : (rawLang.includes('ซับ') ? 'ซับไทย' : rawLang);
+    if (!audioTracks.includes(langNorm)) audioTracks.push(langNorm);
+
+    const btnRegex = /data-id="(\d+)"[^>]*>([\s\S]*?)<\/button>/g;
+    let bMatch;
+    let idx = 1;
+    while ((bMatch = btnRegex.exec(gMatch[2])) !== null) {
+      const btnId = bMatch[1];
+      const text = bMatch[2].replace(/<[^>]+>/g, '').trim();
+      const numM = text.match(/(\d+)/);
+      const epNum = numM ? parseInt(numM[1], 10) : idx;
+      const md5 = epIdToMd5[btnId] || '';
+      if (md5) {
+        episodes.push({ episode: epNum, lang: langNorm, title: text || `EP ${epNum}`, md5 });
+      }
+      idx++;
+    }
+  }
+
+  if (episodes.length === 0) {
+    const directRegex = /torbo007\.com\\?\/embed\\?\/([a-f0-9]{32})/g;
+    const seen = new Set();
+    let dMatch;
+    let idx = 1;
+    while ((dMatch = directRegex.exec(html)) !== null) {
+      if (!seen.has(dMatch[1])) {
+        seen.add(dMatch[1]);
+        episodes.push({ episode: idx, lang: 'พากย์ไทย', title: `EP ${idx}`, md5: dMatch[1] });
+        idx++;
+      }
+    }
+    if (episodes.length > 0) audioTracks.push('พากย์ไทย');
+  }
+
+  return {
+    md5: episodes.length > 0 ? episodes[0].md5 : '',
+    episodes,
+    audio_tracks: audioTracks,
+  };
+}
+
+async function requestTorboTokenEdge(md5) {
+  const resp = await fetch(`${TORBO_BASE}/api/tokenplay`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': `${TORBO_BASE}/embed/${md5}`,
+      'Origin': TORBO_BASE,
+      'User-Agent': USER_AGENT,
+    },
+    body: JSON.stringify({ md5, parent: 'goseries4k.com' }),
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  return {
+    stream_id: data.stream_id || '',
+    token: data.token || '',
+    expires: data.expires || 0,
+    sid: data.sid || data.session_id || '',
+  };
+}
 
 async function handleApiRequest(request, url, env) {
   const corsHeaders = {
@@ -46,35 +145,156 @@ async function handleApiRequest(request, url, env) {
     return new Response(JSON.stringify({
       status: true,
       ok: true,
-      service: 'RongYok Edge API',
-      version: '2.1',
+      service: 'SO+ Edge API (RongYok + GoSeries4K + Torbo007)',
+      version: '4.0',
       timestamp: Date.now()
     }), { headers: corsHeaders });
   }
 
-  // 2. Video Play Proxy: /api/play/:id/:ep
+  // 2. Torbo007 HLS M3U8 Proxy: /stream/:slug/index.m3u8
+  const m3u8Match = url.pathname.match(/^\/(?:api\/)?stream\/([^\/]+)\/index\.m3u8$/);
+  if (m3u8Match) {
+    const slug = m3u8Match[1].replace(/^gs-/, '');
+    let md5 = (url.searchParams.get('md5') || '').trim();
+    const ep = parseInt(url.searchParams.get('ep') || '1', 10);
+    const lang = (url.searchParams.get('lang') || '').trim();
+
+    if (!/^[a-f0-9]{32}$/.test(md5)) {
+      const scraped = await scrapeGoSeriesHtmlEdge(slug);
+      const eps = scraped.episodes || [];
+      let found = eps.find(e => e.episode === ep && (!lang || e.lang.includes(lang)));
+      if (!found) found = eps.find(e => e.episode === ep) || eps[0];
+      md5 = found ? found.md5 : scraped.md5;
+    }
+
+    if (!/^[a-f0-9]{32}$/.test(md5)) {
+      return new Response(JSON.stringify({ status: false, error: 'Could not resolve md5' }), { status: 404, headers: corsHeaders });
+    }
+
+    const tok = await requestTorboTokenEdge(md5);
+    if (!tok || !tok.token || !tok.stream_id) {
+      return new Response(JSON.stringify({ status: false, error: 'Tokenplay failed' }), { status: 502, headers: corsHeaders });
+    }
+
+    const realM3u8Url = `${TORBO_BASE}/api/stream/${tok.stream_id}/index.m3u8?token=${tok.token}&expires=${tok.expires}&parent=goseries4k.com&sid=${tok.sid}`;
+    const m3u8Resp = await fetch(realM3u8Url, {
+      headers: {
+        'Referer': `${TORBO_BASE}/embed/${md5}`,
+        'Origin': TORBO_BASE,
+        'User-Agent': USER_AGENT,
+      }
+    });
+    if (!m3u8Resp.ok) {
+      return new Response(JSON.stringify({ status: false, error: `Upstream M3U8 HTTP ${m3u8Resp.status}` }), { status: 502, headers: corsHeaders });
+    }
+
+    const m3u8Text = await m3u8Resp.text();
+    const rewritten = m3u8Text.split(/\r?\n/).map(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const absUrl = trimmed.startsWith('http') ? trimmed : new URL(trimmed, realM3u8Url).toString();
+        return `/stream/${slug}/segment?url=${encodeURIComponent(absUrl)}&md5=${md5}`;
+      }
+      return line;
+    }).join('\n');
+
+    return new Response(rewritten, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-cache',
+      }
+    });
+  }
+
+  // 3. Torbo007 HLS Segment Proxy: /stream/:slug/segment
+  const segMatch = url.pathname.match(/^\/(?:api\/)?stream\/([^\/]+)\/segment$/);
+  if (segMatch) {
+    const targetUrl = url.searchParams.get('url') || '';
+    const md5 = url.searchParams.get('md5') || '77c5d4d1c67567ab6abc3b9875050a4e';
+    if (!targetUrl) {
+      return new Response('Missing url', { status: 400 });
+    }
+
+    const segHeaders = {
+      'Referer': `${TORBO_BASE}/embed/${md5}`,
+      'Origin': TORBO_BASE,
+      'User-Agent': USER_AGENT,
+    };
+    const rangeHdr = request.headers.get('Range');
+    if (rangeHdr) segHeaders['Range'] = rangeHdr;
+
+    const segResp = await fetch(targetUrl, { headers: segHeaders });
+    if (!segResp.ok && segResp.status !== 206) {
+      return new Response(null, { status: segResp.status });
+    }
+
+    const buf = new Uint8Array(await segResp.arrayBuffer());
+    let sliceOffset = 0;
+    if (buf.length > 512 && buf[0] !== 0x47) {
+      const limit = Math.min(buf.length - 376, 2048);
+      for (let off = 0; off < limit; off++) {
+        if (buf[off] === 0x47 && buf[off + 188] === 0x47 && buf[off + 376] === 0x47) {
+          sliceOffset = off;
+          break;
+        }
+      }
+    }
+
+    return new Response(sliceOffset > 0 ? buf.subarray(sliceOffset) : buf, {
+      status: 200,
+      headers: {
+        'Content-Type': 'video/mp2t',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=86400',
+      }
+    });
+  }
+
+  // 4. Video Play Proxy: /api/play/:id/:ep
   const playMatch = url.pathname.match(/^\/api\/play\/([^\/]+)\/(\d+)/);
   if (playMatch) {
-    const dramaId = playMatch[1];
-    const ep = playMatch[2];
-    const seriesId = dramaId.startsWith('ry-') ? dramaId.substring(3) : dramaId;
+    const dramaId = decodeURIComponent(playMatch[1]);
+    const ep = parseInt(playMatch[2], 10);
+    const provider = url.searchParams.get('provider') || '';
+    const lang = url.searchParams.get('lang') || '';
+    let md5 = url.searchParams.get('md5') || '';
 
+    if (dramaId.startsWith('gs-') || provider === 'goseries4k') {
+      const cleanSlug = dramaId.replace(/^gs-/, '');
+      if (!/^[a-f0-9]{32}$/.test(md5)) {
+        const scraped = await scrapeGoSeriesHtmlEdge(cleanSlug);
+        const eps = scraped.episodes || [];
+        let found = eps.find(e => e.episode === ep && (!lang || e.lang.includes(lang)));
+        if (!found) found = eps.find(e => e.episode === ep) || eps[0];
+        md5 = found ? found.md5 : scraped.md5;
+      }
+      if (!md5) {
+        return new Response(JSON.stringify({ status: false, error: 'MD5 not found for episode' }), { status: 404, headers: corsHeaders });
+      }
+      const streamUrl = `/stream/${cleanSlug}/index.m3u8?ep=${ep}&md5=${md5}${lang ? '&lang=' + encodeURIComponent(lang) : ''}`;
+      return new Response(JSON.stringify({
+        status: true,
+        stream: { streamUrl, format: 'HLS', md5 },
+        source: 'torbo007_cf_edge'
+      }), { status: 200, headers: corsHeaders });
+    }
+
+    const seriesId = dramaId.startsWith('ry-') ? dramaId.substring(3) : dramaId;
     const watchUrl = `https://rongyok.com/watch/?series_id=${seriesId}`;
     const playUrl = `https://rongyok.com/watch/playseries.php?series_id=${seriesId}&ep=${ep}`;
-    
-    const reqHeaders = new Headers();
-    reqHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-    reqHeaders.set('Referer', watchUrl);
-    reqHeaders.set('Origin', 'https://rongyok.com');
-    reqHeaders.set('Accept', 'application/json, text/plain, */*');
-    reqHeaders.set('X-Requested-With', 'XMLHttpRequest');
 
     try {
-      let resp = await fetch(playUrl, {
+      const resp = await fetch(playUrl, {
         method: 'GET',
-        headers: reqHeaders,
-        referrer: watchUrl,
-        referrerPolicy: 'unsafe-url'
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Referer': watchUrl,
+          'Origin': 'https://rongyok.com',
+          'Accept': 'application/json, text/plain, */*',
+          'X-Requested-With': 'XMLHttpRequest',
+        }
       });
 
       if (resp.ok) {
@@ -85,246 +305,94 @@ async function handleApiRequest(request, url, env) {
             stream: { streamUrl: data.video_url, format: 'MP4' },
             source: 'rongyok_cf_edge',
             series_id: seriesId,
-            ep: parseInt(ep, 10)
-          }), {
-            status: 200,
-            headers: {
-              ...corsHeaders,
-              'Cache-Control': 'public, max-age=1200'
-            }
-          });
+            ep
+          }), { status: 200, headers: corsHeaders });
         }
       }
-      return new Response(JSON.stringify({
-        status: false,
-        error: `Upstream returned HTTP ${resp.status}`,
-        upstream_status: resp.status
-      }), {
-        status: 502,
-        headers: corsHeaders
-      });
+      return new Response(JSON.stringify({ status: false, error: `Upstream HTTP ${resp.status}` }), { status: 502, headers: corsHeaders });
     } catch (err) {
-      return new Response(JSON.stringify({
-        status: false,
-        error: `Worker proxy error: ${err.message}`
-      }), {
-        status: 500,
-        headers: corsHeaders
-      });
+      return new Response(JSON.stringify({ status: false, error: err.message }), { status: 500, headers: corsHeaders });
     }
   }
 
-  // 3. Episode List: /api/episodes/:id
+  // 5. Episode List: /api/episodes/:id
   const epMatch = url.pathname.match(/^\/api\/episodes\/([^\/]+)/);
   if (epMatch) {
-    const dramaId = epMatch[1];
-    const seriesId = dramaId.startsWith('ry-') ? dramaId.substring(3) : dramaId;
+    const dramaId = decodeURIComponent(epMatch[1]);
+    const provider = url.searchParams.get('provider') || '';
 
+    if (dramaId.startsWith('gs-') || provider === 'goseries4k') {
+      const cleanSlug = dramaId.replace(/^gs-/, '');
+      const scraped = await scrapeGoSeriesHtmlEdge(cleanSlug);
+      const episodesByLang = {};
+      for (const ep of scraped.episodes || []) {
+        const lKey = ep.lang || 'พากย์ไทย';
+        if (!episodesByLang[lKey]) episodesByLang[lKey] = [];
+        episodesByLang[lKey].push({
+          episode: ep.episode,
+          title: ep.title,
+          lang: lKey,
+          md5: ep.md5,
+          duration: '45:00',
+          is_free: true,
+        });
+      }
+      const tracks = scraped.audio_tracks.length ? scraped.audio_tracks : Object.keys(episodesByLang);
+      const activeLang = tracks[0] || 'พากย์ไทย';
+      return new Response(JSON.stringify({
+        status: true,
+        provider: 'goseries4k',
+        slug: cleanSlug,
+        audio_tracks: tracks,
+        active_lang: activeLang,
+        episodes_by_lang: episodesByLang,
+        episodes: episodesByLang[activeLang] || [],
+        source: 'goseries4k_edge'
+      }), { status: 200, headers: corsHeaders });
+    }
+
+    const seriesId = dramaId.startsWith('ry-') ? dramaId.substring(3) : dramaId;
     let epCount = 0;
     let source = 'rongyok_cf_edge';
     try {
       const resp = await fetch(`https://rongyok.com/watch/?series_id=${seriesId}`, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Referer': 'https://rongyok.com/'
-        }
+        headers: { 'User-Agent': USER_AGENT, 'Referer': 'https://rongyok.com/' }
       });
       if (resp.ok) {
         const html = await resp.text();
         const m = html.match(/const\s+seriesData\s*=\s*(\{.*?\});\s*\n/s);
         if (m) {
-          try {
-            const parsed = JSON.parse(m[1]);
-            if (parsed.episodes && Array.isArray(parsed.episodes) && parsed.episodes.length > 0) {
-              epCount = parsed.episodes.length;
-            } else if (parsed.episodes_count) {
-              epCount = parseInt(parsed.episodes_count, 10);
-            }
-          } catch (e) {}
+          const parsed = JSON.parse(m[1]);
+          if (Array.isArray(parsed.episodes) && parsed.episodes.length > 0) epCount = parsed.episodes.length;
+          else if (parsed.episodes_count) epCount = parseInt(parsed.episodes_count, 10);
         }
       }
     } catch (e) {}
 
-    // Fallback to synced seed_data.json real episode count if CF ASN was blocked
-    if (!epCount) {
-      try {
-        const seedReq = new Request(new URL('/data/seed_data.json', request.url));
-        const seedResp = env.ASSETS ? await env.ASSETS.fetch(seedReq) : await fetch(seedReq);
-        if (seedResp.ok) {
-          const seed = await seedResp.json();
-          const found = (seed.dramas || []).find(
-            d => String(d.series_id) === String(seriesId) || d.id === `ry-${seriesId}`
-          );
-          if (found && found.episodes) {
-            epCount = parseInt(found.episodes, 10);
-            source = 'catalog';
-          }
-        }
-      } catch (e) {}
-    }
+    if (!epCount) epCount = 60;
+    const episodes = Array.from({ length: epCount }, (_, i) => ({
+      episode: i + 1,
+      title: `ตอนที่ ${i + 1}`,
+      duration: '1:30',
+      is_free: true
+    }));
 
-    if (!epCount) {
-      epCount = 60;
-      source = 'fallback';
-    }
+    return new Response(JSON.stringify({ status: true, series_id: seriesId, episodes, source }), { status: 200, headers: corsHeaders });
+  }
 
-    const episodes = [];
-    for (let i = 1; i <= epCount; i++) {
-      episodes.push({
-        episode: i,
-        title: `ตอนที่ ${i}`,
-        duration: '1:30',
-        is_free: true
+  // 6. GoSeries4K Comments Proxy: /api/goseries/comments/:post_id
+  const commentMatch = url.pathname.match(/^\/api\/goseries\/comments\/(\d+)/);
+  if (commentMatch) {
+    const postId = commentMatch[1];
+    try {
+      const r = await fetch(`${GOSERIES_BASE}/wp-json/mov/v1/comments/${postId}?page=1&_locale=th&_=${Date.now()}`, {
+        headers: { 'User-Agent': USER_AGENT, 'Accept': '*/*', 'Referer': `${GOSERIES_BASE}/` }
       });
-    }
-
-    return new Response(JSON.stringify({
-      status: true,
-      series_id: seriesId,
-      episodes: episodes,
-      source: source
-    }), {
-      status: 200,
-      headers: {
-        ...corsHeaders,
-        'Cache-Control': 'public, max-age=86400' // Cache 24 hours on Cloudflare Edge
-      }
-    });
-  }
-
-  // 4. Home Feed: /api/feed
-  if (url.pathname === '/api/feed') {
-    try {
-      const langFilter = url.searchParams.get('lang') || 'all';
-      const genreFilter = url.searchParams.get('genre') || 'ทั้งหมด';
-      const page = parseInt(url.searchParams.get('page') || '1', 10);
-      const limit = parseInt(url.searchParams.get('limit') || '48', 10);
-
-      const seedReq = new Request(new URL('/data/seed_data.json', request.url));
-      const seedResp = env.ASSETS ? await env.ASSETS.fetch(seedReq) : await fetch(seedReq);
-      if (seedResp.ok) {
-        const seed = await seedResp.json();
-        let dramas = seed.dramas || [];
-
-        if (langFilter === 'dubbed') {
-          dramas = dramas.filter(d => (d.language && d.language.includes('พากย์ไทย')) || (d.genre && d.genre.includes('พากย์ไทย')));
-        } else if (langFilter === 'subbed') {
-          dramas = dramas.filter(d => (d.language && d.language.includes('ซับไทย')) || (d.genre && d.genre.includes('ซับไทย')));
-        }
-
-        if (genreFilter && genreFilter !== 'ทั้งหมด') {
-          const gLower = genreFilter.toLowerCase();
-          dramas = dramas.filter(d => d.genre && d.genre.some(g => g.toLowerCase().includes(gLower)));
-        }
-
-        const totalCount = dramas.length;
-        const startIdx = (page - 1) * limit;
-        const endIdx = startIdx + limit;
-        const paginated = dramas.slice(startIdx, endIdx);
-
-        return new Response(JSON.stringify({
-          status: true,
-          providers: seed.providers || [],
-          genres: seed.genres || [],
-          featured: seed.featured || paginated[0] || null,
-          dramas: paginated,
-          page,
-          limit,
-          total: totalCount,
-          has_more: endIdx < totalCount
-        }), {
-          status: 200,
-          headers: {
-            ...corsHeaders,
-            'Cache-Control': 'public, max-age=3600'
-          }
-        });
-      }
-    } catch (e) {
-      return new Response(JSON.stringify({ status: false, error: e.message }), { status: 500, headers: corsHeaders });
-    }
-  }
-
-  // 5. Search: /api/search
-  if (url.pathname === '/api/search') {
-    const rawQuery = (url.searchParams.get('q') || '').trim();
-    const q = rawQuery.toLowerCase();
-    if (!q) {
-      return new Response(JSON.stringify({ status: true, results: [] }), { headers: corsHeaders });
-    }
-    const tokens = q.split(/\s+/).filter(Boolean);
-    let matches = [];
-
-    try {
-      const seedReq = new Request(new URL('/data/seed_data.json', request.url));
-      const seedResp = env.ASSETS ? await env.ASSETS.fetch(seedReq) : await fetch(seedReq);
-      if (seedResp.ok) {
-        const seed = await seedResp.json();
-        matches = (seed.dramas || []).filter(d => {
-          const title = (d.title || '').toLowerCase();
-          const synopsis = (d.synopsis || '').toLowerCase();
-          const genres = Array.isArray(d.genre) ? d.genre.map(g => g.toLowerCase()).join(' ') : '';
-          const lang = (d.language || '').toLowerCase();
-          const sid = String(d.series_id || d.id || '').toLowerCase();
-          const combined = `${title} ${genres} ${lang} ${synopsis} ${sid}`;
-          return combined.includes(q) || tokens.every(t => combined.includes(t));
-        });
+      if (r.ok) {
+        return new Response(await r.text(), { status: 200, headers: corsHeaders });
       }
     } catch (e) {}
-
-    // Live RongYok AJAX search fallback when < 6 local matches
-    if (matches.length < 6) {
-      try {
-        const liveResp = await fetch(`https://rongyok.com/search?ajax=load_more&keyword=${encodeURIComponent(rawQuery)}&offset=0`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Referer': 'https://rongyok.com/search'
-          }
-        });
-        if (liveResp.ok) {
-          const liveData = await liveResp.json();
-          const html = liveData.html || '';
-          const cardRegex = /<a href=["']series\/(\d+)\/[^"']*["'][^>]*>([\s\S]*?)<\/a>/g;
-          let m;
-          while ((m = cardRegex.exec(html)) !== null) {
-            const sid = parseInt(m[1], 10);
-            const cardContent = m[2];
-            if (matches.some(item => item.series_id === sid)) continue;
-
-            const titleM = cardContent.match(/alt=["']([^"']+)["']/);
-            const title = titleM ? titleM[1] : `ซีรีส์ ${sid}`;
-            const imgM = cardContent.match(/src=["']([^"']+)["']/);
-            let poster = imgM ? imgM[1] : '';
-            if (poster && !poster.startsWith('http')) {
-              poster = `https://rongyok.com/${poster.replace(/^\/+/, '')}`;
-            }
-            const badgeM = cardContent.match(/>(พากย์ไทย|ซับไทย)</);
-            const lang = badgeM ? badgeM[1] : 'พากย์ไทย';
-
-            matches.push({
-              id: `ry-${sid}`,
-              series_id: sid,
-              provider: 'rongyok',
-              title,
-              english_title: `RongYok Series ${sid}`,
-              cover: poster || `https://rongyok.com/images/poster/${sid}.webp`,
-              genre: ['หนังสั้นจีน', lang],
-              rating: 9.5,
-              episodes: 60,
-              views: '1.2M',
-              language: `${lang} (เต็มเรื่อง)`,
-              synopsis: `ซีรีส์สั้นเรื่อง ${title} ${lang} รับชมฟรี`,
-              status: 'จบแล้ว'
-            });
-          }
-        }
-      } catch (e) {}
-    }
-
-    return new Response(JSON.stringify({ status: true, results: matches }), {
-      headers: { ...corsHeaders, 'Cache-Control': 'public, max-age=1800' }
-    });
+    return new Response(JSON.stringify({ success: false, data: { comments: [] } }), { status: 200, headers: corsHeaders });
   }
 
   return new Response(JSON.stringify({ status: false, error: 'Endpoint not found' }), {

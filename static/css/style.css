@@ -1763,3 +1763,325 @@ body.is-mobile-device.in-player-mode .player-main-stage {
   width: 100% !important;
   height: 100% !important;
 }
+
+/* ============================================================================
+   GOSERIES4K + TORBO007 4K SERIES, 16:9 WIDESCREEN, FAVORITES & COMMENTS
+   ============================================================================ */
+
+/* Provider Switcher Pills */
+.pill-provider {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+.pill-provider:hover {
+  background: var(--bg-surface-hover);
+  color: #fff;
+  border-color: rgba(16, 185, 129, 0.4);
+}
+.pill-provider.active {
+  background: linear-gradient(135deg, #059669, #10b981);
+  border-color: #10b981;
+  color: #fff;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35);
+}
+
+/* Favorite Heart Button on Cards */
+.card-fav-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 6;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.card-fav-btn:hover {
+  transform: scale(1.15);
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+.card-fav-btn.favorited {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.65);
+}
+
+/* Provider Tag Badge on Card Bottom Left */
+.card-provider-tag {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #fff;
+  z-index: 4;
+  letter-spacing: 0.3px;
+}
+.card-provider-tag.goseries4k {
+  background: linear-gradient(135deg, #ea580c, #f97316);
+  box-shadow: 0 2px 8px rgba(249, 115, 22, 0.45);
+}
+.card-provider-tag.rongyok {
+  background: rgba(5, 150, 105, 0.88);
+}
+
+/* Favorite Button in Player Sidebar */
+.btn-fav-sidebar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn-fav-sidebar:hover,
+.btn-fav-sidebar.favorited {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+/* Audio Track Switcher in Sidebar */
+.audio-track-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-surface-elevated);
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+}
+.audio-track-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.audio-track-buttons {
+  display: flex;
+  gap: 6px;
+}
+.audio-track-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.audio-track-btn:hover {
+  color: #fff;
+  border-color: rgba(16, 185, 129, 0.5);
+}
+.audio-track-btn.active {
+  background: linear-gradient(135deg, #ea580c, #f97316);
+  border-color: #f97316;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(249, 115, 22, 0.35);
+}
+
+/* 16:9 Widescreen Cinema Player Mode (GoSeries4K + Torbo007) */
+.player-main-stage.widescreen-mode {
+  grid-template-columns: 1fr 380px;
+  align-items: start;
+}
+.player-main-stage.widescreen-mode .vertical-phone-container {
+  width: 100%;
+  max-width: 960px;
+}
+.player-main-stage.widescreen-mode .phone-frame {
+  width: 100% !important;
+  max-width: 960px !important;
+  height: auto !important;
+  max-height: 78vh !important;
+  aspect-ratio: 16 / 9 !important;
+  border-radius: 18px !important;
+}
+.player-main-stage.widescreen-mode .video-element {
+  object-fit: contain !important;
+  background: #000;
+}
+#screen-container.widescreen-frame:fullscreen .video-ratio-box,
+#screen-container.widescreen-frame:-webkit-full-screen .video-ratio-box,
+#screen-container.widescreen-frame.pc-fullscreen-active .video-ratio-box {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  aspect-ratio: 16 / 9 !important;
+}
+#screen-container.widescreen-frame:fullscreen #video-element,
+#screen-container.widescreen-frame:-webkit-full-screen #video-element,
+#screen-container.widescreen-frame.pc-fullscreen-active #video-element {
+  object-fit: contain !important;
+}
+
+/* GoSeries4K Viewer Comments List */
+.comments-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.comment-item {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  color: var(--text-main);
+  line-height: 1.45;
+}
+.comment-meta {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Floating Audio Track Switcher on Video Top Overlay & Mobile Drawer */
+.overlay-top-right-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.overlay-audio-buttons {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.overlay-audio-pill {
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #e2e8f0;
+  font-family: var(--font-base);
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.overlay-audio-pill:hover {
+  border-color: #f97316;
+  color: #fff;
+}
+
+.overlay-audio-pill.active {
+  background: linear-gradient(135deg, #ea580c, #f97316);
+  border-color: #fb923c;
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(249, 115, 22, 0.45);
+}
+
+.drawer-audio-section {
+  margin-top: 10px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+
+/* Mobile 16:9 Widescreen Layout: Show Video at Top + Audio Switcher, Episodes & Info Scrollable Below */
+@media (max-width: 768px), (max-width: 900px) and (pointer: coarse) {
+  body.in-player-mode #view-player:has(.widescreen-mode) {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    background: var(--bg-main) !important;
+  }
+
+  body.in-player-mode .player-main-stage.widescreen-mode {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: 100dvh !important;
+  }
+
+  body.in-player-mode .player-main-stage.widescreen-mode .vertical-phone-container {
+    width: 100vw !important;
+    height: auto !important;
+    max-height: none !important;
+    padding-top: max(52px, env(safe-area-inset-top)) !important;
+    background: #000 !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 40 !important;
+  }
+
+  body.in-player-mode .player-main-stage.widescreen-mode .phone-frame {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9 !important;
+    border-radius: 0 !important;
+  }
+
+  body.in-player-mode .player-main-stage.widescreen-mode .player-sidebar {
+    display: flex !important;
+    width: 100% !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    padding: 16px 14px 40px 14px !important;
+  }
+
+  body.in-player-mode .player-overlay-top {
+    padding-left: 140px !important;
+  }
+}
+
+body.is-mobile-device.in-player-mode .player-main-stage.widescreen-mode {
+  display: flex !important;
+  flex-direction: column !important;
+  height: auto !important;
+}
+
+body.is-mobile-device.in-player-mode .player-main-stage.widescreen-mode .player-sidebar {
+  display: flex !important;
+  width: 100% !important;
+  max-height: none !important;
+}
+
