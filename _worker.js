@@ -12,6 +12,36 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const GOSERIES_BASE = 'https://goseries4k.com';
 const TORBO_BASE = 'https://torbo007.com';
 
+export class UsRelay {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const targetUrl = url.searchParams.get('target');
+    const referer = url.searchParams.get('referer') || 'https://rongyok.com/';
+    if (!targetUrl) {
+      return new Response(JSON.stringify({ status: 400, body: 'Missing target' }), { status: 400 });
+    }
+    const resp = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Referer': referer,
+        'Accept': 'application/json, text/plain, */*',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    });
+    const body = await resp.text();
+    return new Response(JSON.stringify({ status: resp.status, body }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
